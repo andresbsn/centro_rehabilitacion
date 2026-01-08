@@ -1,16 +1,44 @@
 services:
-  db:
-    image: postgres:16
-    container_name: centro_rehab_db
-    restart: unless-stopped
+  postgres:
+    image: postgres:15
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: centro_rehab
-    ports:
-      - "5432:5432"
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: Cambiala123!
+      POSTGRES_DB: app_db
     volumes:
       - pgdata:/var/lib/postgresql/data
+    networks:
+      - app-net
+    # ✅ NO ports (no exponer)
+
+  backend:
+    build: ./backend
+    environment:
+      PORT: "3000"
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: admin
+      DB_PASSWORD: Cambiala123!
+      DB_NAME: app_db
+    depends_on:
+      - postgres
+    networks:
+      - app-net
+    ports:
+      - "3003:3000"   # ✅ público sin chocar
+
+  frontend:
+    build: ./frontend
+    depends_on:
+      - backend
+    networks:
+      - app-net
+    ports:
+      - "8083:80"     # ✅ público sin chocar
+
+networks:
+  app-net:
+    name: tu_repo_net
 
 volumes:
   pgdata:
