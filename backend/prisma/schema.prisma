@@ -1,0 +1,159 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum SeguimientoTipo {
+  KINESIOLOGIA
+  GIMNASIO
+  GENERAL
+  OTRO
+}
+
+enum TurnoEstado {
+  RESERVADO
+  CONFIRMADO
+  ASISTIO
+  CANCELADO
+  AUSENTE
+}
+
+model Role {
+  id    String @id @default(cuid())
+  name  String @unique
+  users User[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model User {
+  id           String @id @default(cuid())
+  email        String @unique
+  passwordHash String
+  nombre       String
+
+  roleId String
+  role   Role   @relation(fields: [roleId], references: [id])
+
+  seguimientos Seguimiento[]
+  turnos       Turno[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ObraSocial {
+  id            String @id @default(cuid())
+  nombre        String
+  plan          String?
+  observaciones String?
+
+  pacientes PacienteObraSocial[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([nombre, plan])
+}
+
+model Paciente {
+  id                 String   @id @default(cuid())
+  nombre             String
+  apellido           String
+  dni                String   @unique
+  fechaNacimiento    DateTime
+  telefono           String
+  email              String?
+  direccion          String
+  contactoEmergencia String
+  activo             Boolean  @default(true)
+
+  obraSocial PacienteObraSocial?
+  seguimientos Seguimiento[]
+  turnos       Turno[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([apellido])
+  @@index([dni])
+  @@index([telefono])
+}
+
+model PacienteObraSocial {
+  id           String @id @default(cuid())
+  pacienteId   String @unique
+  obraSocialId String
+
+  numeroAfiliado String
+  observaciones  String?
+
+  paciente   Paciente   @relation(fields: [pacienteId], references: [id], onDelete: Cascade)
+  obraSocial ObraSocial @relation(fields: [obraSocialId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Especialidad {
+  id               String  @id @default(cuid())
+  nombre           String  @unique
+  duracionTurnoMin Int     @default(30)
+  activa           Boolean @default(true)
+
+  turnos Turno[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Seguimiento {
+  id String @id @default(cuid())
+
+  pacienteId String
+  paciente   Paciente @relation(fields: [pacienteId], references: [id], onDelete: Cascade)
+
+  profesionalId String
+  profesional   User @relation(fields: [profesionalId], references: [id])
+
+  fecha DateTime @default(now())
+  tipo  SeguimientoTipo
+  texto String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([pacienteId, fecha])
+  @@index([tipo])
+}
+
+model Turno {
+  id String @id @default(cuid())
+
+  pacienteId String
+  paciente   Paciente @relation(fields: [pacienteId], references: [id])
+
+  especialidadId String
+  especialidad   Especialidad @relation(fields: [especialidadId], references: [id])
+
+  profesionalId String?
+  profesional   User? @relation(fields: [profesionalId], references: [id])
+
+  startAt DateTime
+  endAt   DateTime
+
+  estado TurnoEstado @default(RESERVADO)
+  notas  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([especialidadId, startAt])
+  @@index([profesionalId, startAt])
+  @@index([pacienteId, startAt])
+}
