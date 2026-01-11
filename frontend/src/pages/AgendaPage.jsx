@@ -275,7 +275,7 @@ export default function AgendaPage() {
                   <td className="p-3">{t.cobrado ? 'Sí' : 'No'}</td>
                   <td className="p-3">
                     <div className="flex items-center gap-2">
-                      {canCobrarTurnos && !t.cobrado ? (
+                      {canCobrarTurnos && !t.cobrado && String(t.especialidad?.nombre || '').trim().toLowerCase() !== 'gimnasio' ? (
                         <button
                           onClick={() => cobrarTurno(t.id)}
                           className="bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700 transition"

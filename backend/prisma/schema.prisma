@@ -101,6 +101,24 @@ model PagoMensualGimnasio {
   @@index([yearMonth])
 }
 
+model OrdenKinesiologia {
+  id String @id @default(cuid())
+
+  pacienteId String
+  paciente   Paciente @relation(fields: [pacienteId], references: [id], onDelete: Cascade)
+
+  numero          Int
+  cantidadSesiones Int
+
+  turnos Turno[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([pacienteId, numero])
+  @@index([pacienteId])
+}
+
 model Paciente {
   id                 String   @id @default(cuid())
   nombre             String
@@ -117,6 +135,7 @@ model Paciente {
   seguimientos           Seguimiento[]
   turnos                 Turno[]
   pagosMensualesGimnasio PagoMensualGimnasio[]
+  ordenesKinesiologia    OrdenKinesiologia[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -181,6 +200,10 @@ model Turno {
 
   especialidadId String
   especialidad   Especialidad @relation(fields: [especialidadId], references: [id])
+
+  ordenKinesiologiaId String?
+  ordenKinesiologia   OrdenKinesiologia? @relation(fields: [ordenKinesiologiaId], references: [id])
+  sesionNro           Int?
 
   profesionalId String?
   profesional   User?   @relation("TurnoProfesional", fields: [profesionalId], references: [id])

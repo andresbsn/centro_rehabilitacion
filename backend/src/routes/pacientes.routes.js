@@ -175,6 +175,52 @@ pacientesRouter.get('/:id/seguimientos', async (req, res, next) => {
   }
 });
 
+pacientesRouter.get('/:id/ordenes-kinesiologia', requireRole(['admin', 'recepcion']), async (req, res, next) => {
+  try {
+    const id = req.params.id;
+    const paciente = await prisma.paciente.findUnique({ where: { id }, select: { id: true } });
+    if (!paciente) return next(new HttpError(404, 'NOT_FOUND', 'Paciente no encontrado'));
+
+    const ordenes = await prisma.ordenKinesiologia.findMany({
+      where: { pacienteId: id },
+      orderBy: [{ numero: 'desc' }],
+      include: {
+        turnos: {
+          include: {
+            especialidad: true,
+            profesional: { select: { id: true, nombre: true, email: true } }
+          },
+          orderBy: [{ startAt: 'asc' }]
+        }
+      }
+    });
+
+    const items = ordenes.map((o) => {
+      const consumidas = (o.turnos || []).filter((t) => t.estado === 'ASISTIO').length;
+      const pendientes = Math.max(0, Number(o.cantidadSesiones || 0) - consumidas);
+      return {
+        id: o.id,
+        pacienteId: o.pacienteId,
+        numero: o.numero,
+        cantidadSesiones: o.cantidadSesiones,
+        consumidas,
+        pendientes,
+        createdAt: o.createdAt,
+        turnos: (o.turnos || []).map((t) => ({
+          ...t,
+          fecha: new Date(t.startAt).toISOString().slice(0, 10),
+          horaInicio: new Date(t.startAt).toISOString().slice(11, 16),
+          horaFin: new Date(t.endAt).toISOString().slice(11, 16)
+        }))
+      };
+    });
+
+    res.json({ items });
+  } catch (e) {
+    next(e);
+  }
+});
+
 pacientesRouter.post(
   '/:id/seguimientos',
   requireRole(['admin', 'recepcion', 'profesional']),

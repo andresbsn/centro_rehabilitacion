@@ -37,7 +37,9 @@ const turnoMasivoSchema = z
     diasSemana: z.array(z.number().int().min(0).max(6)).min(1),
     estado: z.enum(['pendiente', 'confirmado']).optional(),
     notas: z.string().optional().nullable(),
-    importeMensualGimnasio: z.number().int().min(0).optional().nullable()
+    importeMensualGimnasio: z.number().int().min(0).optional().nullable(),
+    numeroOrden: z.number().int().min(1).optional().nullable(),
+    cantidadSesiones: z.number().int().min(1).optional().nullable()
   })
   .refine((v) => v.desde <= v.hasta, { message: 'Rango de fechas inválido' })
   .refine((v) => v.horaDesde < v.horaHasta, { message: 'Rango horario inválido' });
@@ -201,7 +203,7 @@ async function resolveImporteCoseguroForTurno({ pacienteId, especialidadId, tx }
   return resolveImporteCoseguroForPacienteId(pacienteId, client);
 }
 
-async function buildMasivoPreview({ pacienteId, especialidadId, profesionalId, desde, hasta, horaDesde, horaHasta, diasSemana, estado, notas }) {
+async function buildMasivoPreview({ pacienteId, especialidadId, profesionalId, desde, hasta, horaDesde, horaHasta, diasSemana, estado, notas, numeroOrden, cantidadSesiones }) {
   const paciente = await prisma.paciente.findUnique({ where: { id: pacienteId } });
   if (!paciente) throw badRequest('Paciente no encontrado', 'NOT_FOUND');
   if (!paciente.activo) throw badRequest('El paciente no está activo', 'PACIENTE_INACTIVE');
@@ -209,6 +211,15 @@ async function buildMasivoPreview({ pacienteId, especialidadId, profesionalId, d
   const especialidad = await prisma.especialidad.findUnique({ where: { id: especialidadId } });
   if (!especialidad) throw badRequest('Especialidad no encontrada', 'NOT_FOUND');
   if (!especialidad.activa) throw badRequest('La especialidad no está activa', 'ESPECIALIDAD_INACTIVE');
+
+  const nombreEspecialidad = String(especialidad?.nombre || '').trim().toLowerCase();
+  const isKinesiologia = nombreEspecialidad === 'kinesiologia';
+  if (isKinesiologia) {
+    const ord = Number(numeroOrden || 0);
+    const cant = Number(cantidadSesiones || 0);
+    if (!ord || ord <= 0) throw badRequest('Número de orden requerido', 'KINESIOLOGIA_ORDEN_REQUIRED');
+    if (!cant || cant <= 0) throw badRequest('Cantidad de sesiones requerida', 'KINESIOLOGIA_SESIONES_REQUIRED');
+  }
 
   if (profesionalId) {
     const profesional = await prisma.user.findUnique({ where: { id: profesionalId } });
@@ -263,16 +274,23 @@ async function buildMasivoPreview({ pacienteId, especialidadId, profesionalId, d
     cursor = addDays(cursor, 1);
   }
 
+  let filtered = items;
+  if (isKinesiologia) {
+    const cant = Number(cantidadSesiones || 0);
+    filtered = items.filter((i) => !i.conflict).slice(0, cant);
+  }
+
   const summary = {
     total: items.length,
     conflicts: items.filter((i) => i.conflict).length,
-    creatable: items.filter((i) => !i.conflict).length
+    creatable: items.filter((i) => !i.conflict).length,
+    selectedForCreation: filtered.length
   };
 
   return {
     paciente: { id: paciente.id, nombre: paciente.nombre, apellido: paciente.apellido, email: paciente.email },
     especialidad: { id: especialidad.id, nombre: especialidad.nombre, duracionTurnoMin: especialidad.duracionTurnoMin },
-    items: items.map((i) => ({
+    items: filtered.map((i) => ({
       ...serializeTurno({
         id: 'preview',
         pacienteId: i.pacienteId,
@@ -373,6 +391,7 @@ turnosRouter.get('/', async (req, res, next) => {
       include: {
         paciente: { include: { obraSocial: { include: { obraSocial: true } } } },
         especialidad: true,
+        ordenKinesiologia: { select: { id: true, numero: true, cantidadSesiones: true } },
         profesional: { select: { id: true, nombre: true, email: true } }
       },
       orderBy: [{ startAt: 'asc' }],
@@ -402,14 +421,51 @@ turnosRouter.post('/masivo/confirm', validateBody(turnoMasivoSchema), async (req
     const creatable = preview.items.filter((i) => !i.conflict);
 
     const isGimnasio = String(preview?.especialidad?.nombre || '').trim().toLowerCase() === 'gimnasio';
+    const isKinesiologia = String(preview?.especialidad?.nombre || '').trim().toLowerCase() === 'kinesiologia';
     if (isGimnasio) {
       const importe = Number(data.importeMensualGimnasio || 0);
       if (!importe || importe <= 0) return next(badRequest('Importe mensual de gimnasio requerido', 'GIMNASIO_IMPORTE_REQUIRED'));
     }
 
+    if (isKinesiologia) {
+      const ord = Number(data.numeroOrden || 0);
+      const cant = Number(data.cantidadSesiones || 0);
+      if (!ord || ord <= 0) return next(badRequest('Número de orden requerido', 'KINESIOLOGIA_ORDEN_REQUIRED'));
+      if (!cant || cant <= 0) return next(badRequest('Cantidad de sesiones requerida', 'KINESIOLOGIA_SESIONES_REQUIRED'));
+
+      if (creatable.length < cant) {
+        return next(
+          badRequest(
+            `No hay suficientes turnos disponibles en el calendario para crear ${cant} sesiones (disponibles: ${creatable.length}). Ajustá el rango/días/horarios.`,
+            'KINESIOLOGIA_NOT_ENOUGH_SLOTS'
+          )
+        );
+      }
+    }
+
     const created = await prisma.$transaction(async (tx) => {
       const rows = [];
       const importeCoseguro = await resolveImporteCoseguroForTurno({ pacienteId: data.pacienteId, especialidadId: data.especialidadId, tx });
+
+      let ordenKinesiologia = null;
+      if (isKinesiologia) {
+        ordenKinesiologia = await tx.ordenKinesiologia.upsert({
+          where: {
+            pacienteId_numero: {
+              pacienteId: data.pacienteId,
+              numero: Number(data.numeroOrden)
+            }
+          },
+          create: {
+            pacienteId: data.pacienteId,
+            numero: Number(data.numeroOrden),
+            cantidadSesiones: Number(data.cantidadSesiones)
+          },
+          update: {
+            cantidadSesiones: Number(data.cantidadSesiones)
+          }
+        });
+      }
 
       if (isGimnasio) {
         const start = parseUtcDateOnly(data.desde);
@@ -430,7 +486,12 @@ turnosRouter.post('/masivo/confirm', validateBody(turnoMasivoSchema), async (req
         }
       }
 
-      for (const i of creatable) {
+      const kinesiologiaLimit = isKinesiologia ? Number(data.cantidadSesiones || 0) : null;
+      const toCreate = isKinesiologia ? creatable.slice(0, kinesiologiaLimit) : creatable;
+
+      let sesionNro = 0;
+      for (const i of toCreate) {
+        sesionNro += 1;
         const turno = await tx.turno.create({
           data: {
             pacienteId: data.pacienteId,
@@ -440,7 +501,8 @@ turnosRouter.post('/masivo/confirm', validateBody(turnoMasivoSchema), async (req
             endAt: new Date(`${i.fecha}T${i.horaFin}:00.000Z`),
             estado: estadoToDb(data.estado || 'pendiente') || 'RESERVADO',
             notas: data.notas || null,
-            importeCoseguro
+            importeCoseguro,
+            ...(ordenKinesiologia ? { ordenKinesiologiaId: ordenKinesiologia.id, sesionNro } : {})
           },
           include: {
             paciente: { include: { obraSocial: { include: { obraSocial: true } } } },
@@ -472,6 +534,7 @@ turnosRouter.get('/:id', async (req, res, next) => {
       include: {
         paciente: { include: { obraSocial: { include: { obraSocial: true } } } },
         especialidad: true,
+        ordenKinesiologia: { select: { id: true, numero: true, cantidadSesiones: true } },
         profesional: { select: { id: true, nombre: true, email: true } }
       }
     });

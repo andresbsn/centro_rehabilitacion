@@ -25,7 +25,9 @@ export function MassTurnsPage() {
     diasSemana: [1, 2, 3, 4, 5],
     estado: 'pendiente',
     notas: '',
-    importeMensualGimnasio: ''
+    importeMensualGimnasio: '',
+    numeroOrden: '',
+    cantidadSesiones: ''
   });
 
   const initialForm = useMemo(
@@ -40,7 +42,9 @@ export function MassTurnsPage() {
       diasSemana: [1, 2, 3, 4, 5],
       estado: 'pendiente',
       notas: '',
-      importeMensualGimnasio: ''
+      importeMensualGimnasio: '',
+      numeroOrden: '',
+      cantidadSesiones: ''
     }),
     []
   );
@@ -53,6 +57,11 @@ export function MassTurnsPage() {
   const isGimnasio = useMemo(() => {
     const n = String(selectedEspecialidad?.nombre || '').trim().toLowerCase();
     return n === 'gimnasio';
+  }, [selectedEspecialidad]);
+
+  const isKinesiologia = useMemo(() => {
+    const n = String(selectedEspecialidad?.nombre || '').trim().toLowerCase();
+    return n === 'kinesiologia';
   }, [selectedEspecialidad]);
 
   const dias = useMemo(
@@ -107,7 +116,8 @@ export function MassTurnsPage() {
         diasSemana: form.diasSemana,
         estado: form.estado,
         notas: form.notas || null,
-        ...(isGimnasio ? { importeMensualGimnasio: Number(form.importeMensualGimnasio || 0) } : {})
+        ...(isGimnasio ? { importeMensualGimnasio: Number(form.importeMensualGimnasio || 0) } : {}),
+        ...(isKinesiologia ? { numeroOrden: Number(form.numeroOrden || 0), cantidadSesiones: Number(form.cantidadSesiones || 0) } : {})
       };
 
       const data = await apiFetch('/api/turnos/masivo/preview', { token, method: 'POST', body });
@@ -135,7 +145,8 @@ export function MassTurnsPage() {
         diasSemana: form.diasSemana,
         estado: form.estado,
         notas: form.notas || null,
-        ...(isGimnasio ? { importeMensualGimnasio: Number(form.importeMensualGimnasio || 0) } : {})
+        ...(isGimnasio ? { importeMensualGimnasio: Number(form.importeMensualGimnasio || 0) } : {}),
+        ...(isKinesiologia ? { numeroOrden: Number(form.numeroOrden || 0), cantidadSesiones: Number(form.cantidadSesiones || 0) } : {})
       };
 
       const data = await apiFetch('/api/turnos/masivo/confirm', { token, method: 'POST', body });
@@ -160,7 +171,8 @@ export function MassTurnsPage() {
     form.horaHasta &&
     Array.isArray(form.diasSemana) &&
     form.diasSemana.length > 0 &&
-    (!isGimnasio || Number(form.importeMensualGimnasio || 0) > 0);
+    (!isGimnasio || Number(form.importeMensualGimnasio || 0) > 0) &&
+    (!isKinesiologia || (Number(form.numeroOrden || 0) > 0 && Number(form.cantidadSesiones || 0) > 0));
 
   return (
     <div>
@@ -195,6 +207,27 @@ export function MassTurnsPage() {
               value={form.importeMensualGimnasio}
               onChange={(e) => setForm((p) => ({ ...p, importeMensualGimnasio: e.target.value }))}
             />
+          ) : null}
+
+          {isKinesiologia ? (
+            <>
+              <input
+                type="number"
+                min={1}
+                className="border px-3 py-2 rounded-lg"
+                placeholder="N° de orden"
+                value={form.numeroOrden || ''}
+                onChange={(e) => setForm((p) => ({ ...p, numeroOrden: e.target.value }))}
+              />
+              <input
+                type="number"
+                min={1}
+                className="border px-3 py-2 rounded-lg"
+                placeholder="Cantidad de sesiones"
+                value={form.cantidadSesiones || ''}
+                onChange={(e) => setForm((p) => ({ ...p, cantidadSesiones: e.target.value }))}
+              />
+            </>
           ) : null}
 
           <select

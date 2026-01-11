@@ -26,6 +26,9 @@ export function PatientDetailPage() {
   const [turnos, setTurnos] = useState([]);
   const [turnosLoading, setTurnosLoading] = useState(false);
   const [turnosError, setTurnosError] = useState('');
+  const [ordenesKinesiologia, setOrdenesKinesiologia] = useState([]);
+  const [ordenesKinesiologiaLoading, setOrdenesKinesiologiaLoading] = useState(false);
+  const [ordenesKinesiologiaError, setOrdenesKinesiologiaError] = useState('');
   const [pagosGimnasio, setPagosGimnasio] = useState([]);
   const [pagosGimnasioLoading, setPagosGimnasioLoading] = useState(false);
   const [pagosGimnasioError, setPagosGimnasioError] = useState('');
@@ -84,6 +87,20 @@ export function PatientDetailPage() {
     }
   }
 
+  async function loadOrdenesKinesiologia() {
+    if (!token) return;
+    setOrdenesKinesiologiaLoading(true);
+    setOrdenesKinesiologiaError('');
+    try {
+      const data = await apiFetch(`/api/pacientes/${id}/ordenes-kinesiologia`, { token });
+      setOrdenesKinesiologia(data.items || []);
+    } catch (e) {
+      setOrdenesKinesiologiaError(e.message || 'Error');
+    } finally {
+      setOrdenesKinesiologiaLoading(false);
+    }
+  }
+
   useEffect(() => {
     apiFetch('/api/obras-sociales', { token })
       .then((data) => setObrasSociales(data?.items || []))
@@ -126,6 +143,7 @@ export function PatientDetailPage() {
     loadSeguimientos();
     loadTurnos();
     loadPagosGimnasio();
+    loadOrdenesKinesiologia();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
 
@@ -410,6 +428,7 @@ export function PatientDetailPage() {
                             <th className="p-2 text-left">Fecha</th>
                             <th className="p-2 text-left">Hora</th>
                             <th className="p-2 text-left">Especialidad</th>
+                            <th className="p-2 text-left">Orden</th>
                             <th className="p-2 text-left">Profesional</th>
                             <th className="p-2 text-left">Estado</th>
                             <th className="p-2 text-left">Coseguro</th>
@@ -425,12 +444,15 @@ export function PatientDetailPage() {
                                 {t.horaInicio} - {t.horaFin}
                               </td>
                               <td className="p-2">{t.especialidad?.nombre || '-'}</td>
+                              <td className="p-2">
+                                {t.ordenKinesiologia?.numero ? `#${t.ordenKinesiologia.numero}${t.sesionNro ? ` (${t.sesionNro})` : ''}` : '-'}
+                              </td>
                               <td className="p-2">{t.profesional?.nombre || '-'}</td>
                               <td className="p-2">{t.estado || '-'}</td>
                               <td className="p-2">{Number(t.importeCoseguro || 0)}</td>
                               <td className="p-2">{t.cobrado ? 'Sí' : 'No'}</td>
                               <td className="p-2">
-                                {canCobrarTurnos && !t.cobrado ? (
+                                {canCobrarTurnos && !t.cobrado && String(t.especialidad?.nombre || '').trim().toLowerCase() !== 'gimnasio' ? (
                                   <button
                                     type="button"
                                     disabled={saving}
@@ -460,6 +482,59 @@ export function PatientDetailPage() {
                         </tbody>
                       </table>
                       {!turnos.length ? <div className="text-gray-600 mt-2">Sin turnos</div> : null}
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="bg-white border border-gray-200 rounded-lg p-4 mb-4">
+                  <h2 className="text-lg font-semibold mb-2">Órdenes de Kinesiología</h2>
+                  {ordenesKinesiologiaError ? (
+                    <div className="bg-red-50 text-red-600 px-4 py-2 rounded-lg mb-3">{ordenesKinesiologiaError}</div>
+                  ) : null}
+                  {ordenesKinesiologiaLoading ? <div className="text-gray-600">Cargando...</div> : null}
+
+                  {!ordenesKinesiologiaLoading ? (
+                    <div className="grid gap-3">
+                      {ordenesKinesiologia.map((o) => (
+                        <div key={o.id} className="border border-gray-200 rounded-lg p-3">
+                          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                            <div className="font-semibold">Orden #{o.numero}</div>
+                            <div className="text-sm text-gray-700">
+                              Total: {o.cantidadSesiones} · Consumidas: {o.consumidas} · Pendientes: {o.pendientes}
+                            </div>
+                          </div>
+
+                          <div className="overflow-auto mt-2">
+                            <table className="w-full text-sm">
+                              <thead className="bg-gray-50">
+                                <tr>
+                                  <th className="p-2 text-left">Sesión</th>
+                                  <th className="p-2 text-left">Fecha</th>
+                                  <th className="p-2 text-left">Hora</th>
+                                  <th className="p-2 text-left">Estado</th>
+                                  <th className="p-2 text-left">Profesional</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {(o.turnos || []).map((t) => (
+                                  <tr key={t.id} className="border-t border-gray-100">
+                                    <td className="p-2">{t.sesionNro || '-'}</td>
+                                    <td className="p-2">{String(t.fecha).slice(0, 10)}</td>
+                                    <td className="p-2">
+                                      {t.horaInicio} - {t.horaFin}
+                                    </td>
+                                    <td className="p-2">{t.estado || '-'}</td>
+                                    <td className="p-2">{t.profesional?.nombre || '-'}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                            {!o.turnos?.length ? <div className="text-gray-600 mt-2">Sin turnos para esta orden</div> : null}
+                          </div>
+                        </div>
+                      ))}
+
+                      {!ordenesKinesiologia.length ? <div className="text-gray-600">Sin órdenes registradas</div> : null}
                     </div>
                   ) : null}
                 </div>
