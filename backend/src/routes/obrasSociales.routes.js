@@ -13,7 +13,8 @@ obrasSocialesRouter.use(requireAuth);
 const obraSocialCreateSchema = z.object({
   nombre: z.string().min(1),
   plan: z.string().min(1).optional().nullable(),
-  observaciones: z.string().min(1).optional().nullable()
+  observaciones: z.string().min(1).optional().nullable(),
+  coseguroTipo: z.enum(['COSEGURO1', 'COSEGURO2']).optional().nullable()
 });
 
 const obraSocialUpdateSchema = obraSocialCreateSchema.partial();
@@ -63,7 +64,8 @@ obrasSocialesRouter.post('/', requireRole(['admin', 'recepcion']), validateBody(
       data: {
         nombre: data.nombre,
         plan: data.plan || null,
-        observaciones: data.observaciones || null
+        observaciones: data.observaciones || null,
+        coseguroTipo: data.coseguroTipo || null
       }
     });
 
@@ -89,7 +91,8 @@ obrasSocialesRouter.put('/:id', requireRole(['admin', 'recepcion']), validateBod
       data: {
         ...(data.nombre !== undefined ? { nombre: data.nombre } : {}),
         ...(data.plan !== undefined ? { plan: data.plan } : {}),
-        ...(data.observaciones !== undefined ? { observaciones: data.observaciones } : {})
+        ...(data.observaciones !== undefined ? { observaciones: data.observaciones } : {}),
+        ...(data.coseguroTipo !== undefined ? { coseguroTipo: data.coseguroTipo } : {})
       }
     });
 

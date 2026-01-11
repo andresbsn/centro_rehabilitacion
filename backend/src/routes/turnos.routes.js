@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 
 import { prisma } from '../prisma.js';
-import { requireAuth } from '../middleware/auth.js';
+import { requireAuth, requireRole } from '../middleware/auth.js';
 import { validateBody } from '../middleware/validate.js';
 import { HttpError, badRequest } from '../utils/httpError.js';
 import { sendEmail } from '../utils/mailer.js';
@@ -117,6 +117,35 @@ function minutesToTimeStr(totalMin) {
   const h = String(Math.floor(totalMin / 60)).padStart(2, '0');
   const m = String(totalMin % 60).padStart(2, '0');
   return `${h}:${m}`;
+}
+
+async function getOrCreateCosegurosConfig(tx) {
+  const client = tx || prisma;
+  return client.configuracionCoseguros.upsert({
+    where: { id: 'default' },
+    create: { id: 'default', coseguro1: 0, coseguro2: 0 },
+    update: {}
+  });
+}
+
+async function resolveImporteCoseguroForPacienteId(pacienteId, tx) {
+  const client = tx || prisma;
+  const paciente = await client.paciente.findUnique({
+    where: { id: pacienteId },
+    include: {
+      obraSocial: {
+        include: {
+          obraSocial: true
+        }
+      }
+    }
+  });
+
+  const tipo = paciente?.obraSocial?.obraSocial?.coseguroTipo;
+  if (!tipo) return 0;
+
+  const config = await getOrCreateCosegurosConfig(client);
+  return tipo === 'COSEGURO1' ? config.coseguro1 : config.coseguro2;
 }
 
 async function buildMasivoPreview({ pacienteId, especialidadId, profesionalId, desde, hasta, horaDesde, horaHasta, diasSemana, estado, notas }) {
@@ -289,7 +318,7 @@ turnosRouter.get('/', async (req, res, next) => {
     const items = await prisma.turno.findMany({
       where,
       include: {
-        paciente: { include: { obraSocial: true } },
+        paciente: { include: { obraSocial: { include: { obraSocial: true } } } },
         especialidad: true,
         profesional: { select: { id: true, nombre: true, email: true } }
       },
@@ -321,6 +350,7 @@ turnosRouter.post('/masivo/confirm', validateBody(turnoMasivoSchema), async (req
 
     const created = await prisma.$transaction(async (tx) => {
       const rows = [];
+      const importeCoseguro = await resolveImporteCoseguroForPacienteId(data.pacienteId, tx);
       for (const i of creatable) {
         const turno = await tx.turno.create({
           data: {
@@ -330,10 +360,11 @@ turnosRouter.post('/masivo/confirm', validateBody(turnoMasivoSchema), async (req
             startAt: new Date(`${i.fecha}T${i.horaInicio}:00.000Z`),
             endAt: new Date(`${i.fecha}T${i.horaFin}:00.000Z`),
             estado: estadoToDb(data.estado || 'pendiente') || 'RESERVADO',
-            notas: data.notas || null
+            notas: data.notas || null,
+            importeCoseguro
           },
           include: {
-            paciente: { include: { obraSocial: true } },
+            paciente: { include: { obraSocial: { include: { obraSocial: true } } } },
             especialidad: true,
             profesional: { select: { id: true, nombre: true, email: true } }
           }
@@ -360,7 +391,7 @@ turnosRouter.get('/:id', async (req, res, next) => {
     const turno = await prisma.turno.findUnique({
       where: { id },
       include: {
-        paciente: { include: { obraSocial: true } },
+        paciente: { include: { obraSocial: { include: { obraSocial: true } } } },
         especialidad: true,
         profesional: { select: { id: true, nombre: true, email: true } }
       }
@@ -410,6 +441,8 @@ turnosRouter.post('/', validateBody(turnoCreateSchema), async (req, res, next) =
       return next(badRequest('Ya existe un turno en ese horario para esta especialidad/profesional', 'OVERLAP'));
     }
 
+    const importeCoseguro = await resolveImporteCoseguroForPacienteId(pacienteId);
+
     const turno = await prisma.turno.create({
       data: {
         pacienteId,
@@ -418,10 +451,11 @@ turnosRouter.post('/', validateBody(turnoCreateSchema), async (req, res, next) =
         startAt,
         endAt,
         estado: 'RESERVADO',
-        notas: notas || null
+        notas: notas || null,
+        importeCoseguro
       },
       include: {
-        paciente: { include: { obraSocial: true } },
+        paciente: { include: { obraSocial: { include: { obraSocial: true } } } },
         especialidad: true,
         profesional: { select: { id: true, nombre: true, email: true } }
       }
@@ -454,7 +488,7 @@ turnosRouter.put('/:id', validateBody(turnoUpdateSchema), async (req, res, next)
         ...(data.notas !== undefined ? { notas: data.notas } : {})
       },
       include: {
-        paciente: { include: { obraSocial: true } },
+        paciente: { include: { obraSocial: { include: { obraSocial: true } } } },
         especialidad: true,
         profesional: { select: { id: true, nombre: true, email: true } }
       }
@@ -471,6 +505,33 @@ turnosRouter.put('/:id', validateBody(turnoUpdateSchema), async (req, res, next)
   }
 });
 
+turnosRouter.post('/:id/cobrar', requireRole(['admin', 'recepcion']), async (req, res, next) => {
+  try {
+    const id = req.params.id;
+    const turno = await prisma.turno.findUnique({ where: { id } });
+    if (!turno) return next(new HttpError(404, 'NOT_FOUND', 'Turno no encontrado'));
+    if (turno.cobrado) return next(badRequest('El turno ya está cobrado', 'ALREADY_PAID'));
+
+    const updated = await prisma.turno.update({
+      where: { id },
+      data: {
+        cobrado: true,
+        cobradoAt: new Date(),
+        cobradoPorId: req.user.id
+      },
+      include: {
+        paciente: { include: { obraSocial: { include: { obraSocial: true } } } },
+        especialidad: true,
+        profesional: { select: { id: true, nombre: true, email: true } }
+      }
+    });
+
+    res.json({ turno: serializeTurno(updated) });
+  } catch (e) {
+    next(e);
+  }
+});
+
 turnosRouter.delete('/:id', async (req, res, next) => {
   try {
     const id = req.params.id;
@@ -482,7 +543,7 @@ turnosRouter.delete('/:id', async (req, res, next) => {
       where: { id },
       data: { estado: 'CANCELADO' },
       include: {
-        paciente: { include: { obraSocial: true } },
+        paciente: { include: { obraSocial: { include: { obraSocial: true } } } },
         especialidad: true,
         profesional: { select: { id: true, nombre: true, email: true } }
       }

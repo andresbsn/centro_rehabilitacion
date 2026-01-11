@@ -23,6 +23,9 @@ export function PatientDetailPage() {
   const [showSegModal, setShowSegModal] = useState(false);
   const [editingSeg, setEditingSeg] = useState(null);
   const [segForm, setSegForm] = useState({ tipo: 'GENERAL', texto: '' });
+  const [turnos, setTurnos] = useState([]);
+  const [turnosLoading, setTurnosLoading] = useState(false);
+  const [turnosError, setTurnosError] = useState('');
   const [obrasSociales, setObrasSociales] = useState([]);
   const [editForm, setEditForm] = useState({
     nombre: '',
@@ -39,6 +42,8 @@ export function PatientDetailPage() {
     numeroAfiliado: '',
     observacionesObraSocial: ''
   });
+
+  const canCobrarTurnos = user?.role === 'admin' || user?.role === 'recepcion';
 
   useEffect(() => {
     let cancelled = false;
@@ -85,9 +90,24 @@ export function PatientDetailPage() {
     }
   }
 
+  async function loadTurnos() {
+    if (!token) return;
+    setTurnosLoading(true);
+    setTurnosError('');
+    try {
+      const data = await apiFetch(`/api/turnos?pacienteId=${encodeURIComponent(id)}`, { token });
+      setTurnos(data.items || []);
+    } catch (e) {
+      setTurnosError(e.message || 'Error');
+    } finally {
+      setTurnosLoading(false);
+    }
+  }
+
   useEffect(() => {
     if (activeTab !== 'seguimiento') return;
     loadSeguimientos();
+    loadTurnos();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
 
@@ -358,6 +378,73 @@ export function PatientDetailPage() {
             {activeTab === 'seguimiento' ? (
               <div className="p-3">
                 {segError ? <div className="bg-red-50 text-red-600 px-4 py-2 rounded-lg mb-3">{segError}</div> : null}
+
+                <div className="bg-white border border-gray-200 rounded-lg p-4 mb-4">
+                  <h2 className="text-lg font-semibold mb-2">Turnos</h2>
+                  {turnosError ? <div className="bg-red-50 text-red-600 px-4 py-2 rounded-lg mb-3">{turnosError}</div> : null}
+                  {turnosLoading ? <div className="text-gray-600">Cargando...</div> : null}
+
+                  {!turnosLoading ? (
+                    <div className="overflow-auto">
+                      <table className="w-full text-sm">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="p-2 text-left">Fecha</th>
+                            <th className="p-2 text-left">Hora</th>
+                            <th className="p-2 text-left">Especialidad</th>
+                            <th className="p-2 text-left">Profesional</th>
+                            <th className="p-2 text-left">Estado</th>
+                            <th className="p-2 text-left">Coseguro</th>
+                            <th className="p-2 text-left">Cobrado</th>
+                            <th className="p-2 text-left">Acciones</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {turnos.map((t) => (
+                            <tr key={t.id} className="border-t border-gray-100">
+                              <td className="p-2">{String(t.fecha).slice(0, 10)}</td>
+                              <td className="p-2">
+                                {t.horaInicio} - {t.horaFin}
+                              </td>
+                              <td className="p-2">{t.especialidad?.nombre || '-'}</td>
+                              <td className="p-2">{t.profesional?.nombre || '-'}</td>
+                              <td className="p-2">{t.estado || '-'}</td>
+                              <td className="p-2">{Number(t.importeCoseguro || 0)}</td>
+                              <td className="p-2">{t.cobrado ? 'Sí' : 'No'}</td>
+                              <td className="p-2">
+                                {canCobrarTurnos && !t.cobrado ? (
+                                  <button
+                                    type="button"
+                                    disabled={saving}
+                                    onClick={async () => {
+                                      const ok = window.confirm('¿Cobrar este turno?');
+                                      if (!ok) return;
+                                      try {
+                                        setSaving(true);
+                                        await apiFetch(`/api/turnos/${t.id}/cobrar`, { token, method: 'POST' });
+                                        await loadTurnos();
+                                      } catch (e) {
+                                        setTurnosError(e.message || 'Error');
+                                      } finally {
+                                        setSaving(false);
+                                      }
+                                    }}
+                                    className="bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700 transition"
+                                  >
+                                    Cobrar
+                                  </button>
+                                ) : (
+                                  <span className="text-gray-400">-</span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      {!turnos.length ? <div className="text-gray-600 mt-2">Sin turnos</div> : null}
+                    </div>
+                  ) : null}
+                </div>
 
                 <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 mb-3">
                   <div className="flex flex-col md:flex-row gap-2">

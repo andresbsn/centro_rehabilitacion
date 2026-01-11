@@ -3,7 +3,7 @@ import { apiFetch } from '../api/client';
 import { useAuth } from '../state/AuthProvider';
 
 export default function AgendaPage() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const [items, setItems] = useState([]);
   const [pacientes, setPacientes] = useState([]);
   const [especialidades, setEspecialidades] = useState([]);
@@ -132,6 +132,19 @@ export default function AgendaPage() {
     await cambiarEstado(id, 'cancelado');
   }
 
+  const canCobrarTurnos = user?.role === 'admin' || user?.role === 'recepcion';
+
+  async function cobrarTurno(id) {
+    if (!confirm('¿Cobrar este turno?')) return;
+    setError('');
+    try {
+      await apiFetch(`/api/turnos/${id}/cobrar`, { token, method: 'POST' });
+      await load();
+    } catch (e) {
+      setError(e.message || 'Error');
+    }
+  }
+
   return (
     <div>
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
@@ -234,6 +247,8 @@ export default function AgendaPage() {
                 <th className="p-3 text-left">Especialidad</th>
                 <th className="p-3 text-left">Profesional</th>
                 <th className="p-3 text-left">Estado</th>
+                <th className="p-3 text-left">Coseguro</th>
+                <th className="p-3 text-left">Cobrado</th>
                 <th className="p-3 text-left">Acciones</th>
               </tr>
             </thead>
@@ -254,8 +269,18 @@ export default function AgendaPage() {
                       {estados[t.estado] || t.estado}
                     </span>
                   </td>
+                  <td className="p-3">{Number(t.importeCoseguro || 0)}</td>
+                  <td className="p-3">{t.cobrado ? 'Sí' : 'No'}</td>
                   <td className="p-3">
                     <div className="flex items-center gap-2">
+                      {canCobrarTurnos && !t.cobrado ? (
+                        <button
+                          onClick={() => cobrarTurno(t.id)}
+                          className="bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700 transition"
+                        >
+                          Cobrar
+                        </button>
+                      ) : null}
                       <select
                         className="border border-gray-300 px-2 py-1 rounded"
                         value={t.estado}

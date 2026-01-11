@@ -22,6 +22,11 @@ enum TurnoEstado {
   AUSENTE
 }
 
+enum CoseguroTipo {
+  COSEGURO1
+  COSEGURO2
+}
+
 model Role {
   id    String @id @default(cuid())
   name  String @unique
@@ -41,7 +46,8 @@ model User {
   role   Role   @relation(fields: [roleId], references: [id])
 
   seguimientos Seguimiento[]
-  turnos       Turno[]
+  turnos       Turno[] @relation("TurnoProfesional")
+  turnosCobrados Turno[] @relation("TurnoCobradoPor")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -53,12 +59,24 @@ model ObraSocial {
   plan          String?
   observaciones String?
 
+  coseguroTipo CoseguroTipo?
+
   pacientes PacienteObraSocial[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([nombre, plan])
+}
+
+model ConfiguracionCoseguros {
+  id String @id
+
+  coseguro1 Int @default(0)
+  coseguro2 Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Paciente {
@@ -142,13 +160,19 @@ model Turno {
   especialidad   Especialidad @relation(fields: [especialidadId], references: [id])
 
   profesionalId String?
-  profesional   User? @relation(fields: [profesionalId], references: [id])
+  profesional   User? @relation("TurnoProfesional", fields: [profesionalId], references: [id])
 
   startAt DateTime
   endAt   DateTime
 
   estado TurnoEstado @default(RESERVADO)
   notas  String?
+
+  importeCoseguro Int @default(0)
+  cobrado         Boolean  @default(false)
+  cobradoAt       DateTime?
+  cobradoPorId    String?
+  cobradoPor      User? @relation("TurnoCobradoPor", fields: [cobradoPorId], references: [id])
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

@@ -47,10 +47,10 @@ export default function PatientsPage() {
   }, [load]);
 
   useEffect(() => {
-    apiFetch('/api/obras-sociales')
+    apiFetch('/api/obras-sociales', { token })
       .then((data) => setObrasSociales(data?.items || []))
       .catch(() => setObrasSociales([]));
-  }, []);
+  }, [token]);
 
   async function handleSubmit(e) {
     e.preventDefault();

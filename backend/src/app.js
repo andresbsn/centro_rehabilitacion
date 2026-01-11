@@ -12,6 +12,7 @@ import { obrasSocialesRouter } from './routes/obrasSociales.routes.js';
 import { especialidadesRouter } from './routes/especialidades.routes.js';
 import { turnosRouter } from './routes/turnos.routes.js';
 import { usuariosRouter } from './routes/usuarios.routes.js';
+import { configRouter } from './routes/config.routes.js';
 
 export function buildApp() {
   const app = express();
@@ -31,6 +32,7 @@ export function buildApp() {
   app.use('/api/especialidades', especialidadesRouter);
   app.use('/api/turnos', turnosRouter);
   app.use('/api/usuarios', usuariosRouter);
+  app.use('/api/config', configRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

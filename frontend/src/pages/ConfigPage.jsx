@@ -20,7 +20,11 @@ export default function ConfigPage() {
   const [obrasError, setObrasError] = useState(null);
   const [obrasShowCreate, setObrasShowCreate] = useState(false);
   const [obrasEditing, setObrasEditing] = useState(null);
-  const [obrasForm, setObrasForm] = useState({ nombre: '', plan: '', observaciones: '' });
+  const [obrasForm, setObrasForm] = useState({ nombre: '', plan: '', observaciones: '', coseguroTipo: '' });
+
+  const [cosegurosLoading, setCosegurosLoading] = useState(false);
+  const [cosegurosError, setCosegurosError] = useState(null);
+  const [cosegurosForm, setCosegurosForm] = useState({ coseguro1: 0, coseguro2: 0 });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -52,6 +56,23 @@ export default function ConfigPage() {
     }
   }, [obrasSearch, token]);
 
+  const loadCoseguros = useCallback(async () => {
+    setCosegurosLoading(true);
+    setCosegurosError(null);
+    try {
+      const data = await apiFetch('/api/config/coseguros', { token });
+      const cfg = data?.config;
+      setCosegurosForm({
+        coseguro1: Number(cfg?.coseguro1 ?? 0),
+        coseguro2: Number(cfg?.coseguro2 ?? 0)
+      });
+    } catch (e) {
+      setCosegurosError(e.message);
+    } finally {
+      setCosegurosLoading(false);
+    }
+  }, [token]);
+
   useEffect(() => {
     load();
   }, [load]);
@@ -59,6 +80,10 @@ export default function ConfigPage() {
   useEffect(() => {
     loadObras();
   }, [loadObras]);
+
+  useEffect(() => {
+    loadCoseguros();
+  }, [loadCoseguros]);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -91,7 +116,8 @@ export default function ConfigPage() {
     const payload = {
       nombre: obrasForm.nombre.trim(),
       plan: obrasForm.plan.trim() ? obrasForm.plan.trim() : null,
-      observaciones: obrasForm.observaciones.trim() ? obrasForm.observaciones.trim() : null
+      observaciones: obrasForm.observaciones.trim() ? obrasForm.observaciones.trim() : null,
+      coseguroTipo: obrasForm.coseguroTipo ? obrasForm.coseguroTipo : null
     };
 
     try {
@@ -103,9 +129,24 @@ export default function ConfigPage() {
       await loadObras();
       setObrasShowCreate(false);
       setObrasEditing(null);
-      setObrasForm({ nombre: '', plan: '', observaciones: '' });
+      setObrasForm({ nombre: '', plan: '', observaciones: '', coseguroTipo: '' });
     } catch (e) {
       setObrasError(e.message);
+    }
+  }
+
+  async function handleSubmitCoseguros(e) {
+    e.preventDefault();
+    setCosegurosError(null);
+    try {
+      const payload = {
+        coseguro1: Number(cosegurosForm.coseguro1),
+        coseguro2: Number(cosegurosForm.coseguro2)
+      };
+      await apiFetch('/api/config/coseguros', { token, method: 'PUT', body: payload });
+      await loadCoseguros();
+    } catch (e) {
+      setCosegurosError(e.message);
     }
   }
 
@@ -117,7 +158,7 @@ export default function ConfigPage() {
 
   function openCreateObra() {
     setObrasEditing(null);
-    setObrasForm({ nombre: '', plan: '', observaciones: '' });
+    setObrasForm({ nombre: '', plan: '', observaciones: '', coseguroTipo: '' });
     setObrasShowCreate(true);
   }
 
@@ -132,7 +173,8 @@ export default function ConfigPage() {
     setObrasForm({
       nombre: item.nombre || '',
       plan: item.plan || '',
-      observaciones: item.observaciones || ''
+      observaciones: item.observaciones || '',
+      coseguroTipo: item.coseguroTipo || ''
     });
     setObrasShowCreate(true);
   }
@@ -167,6 +209,12 @@ export default function ConfigPage() {
           onClick={() => setTab('obras')}
         >
           Obras sociales
+        </button>
+        <button
+          className={`px-3 py-2 rounded ${tab === 'coseguros' ? 'bg-blue-600 text-white' : 'bg-gray-100'}`}
+          onClick={() => setTab('coseguros')}
+        >
+          Coseguros
         </button>
       </div>
 
@@ -307,6 +355,7 @@ export default function ConfigPage() {
                 <tr className="bg-gray-100">
                   <th className="border p-2 text-left">Nombre</th>
                   <th className="border p-2 text-left">Plan</th>
+                  <th className="border p-2 text-left">Coseguro</th>
                   <th className="border p-2 text-left">Observaciones</th>
                   <th className="border p-2 text-left">Acciones</th>
                 </tr>
@@ -316,6 +365,7 @@ export default function ConfigPage() {
                   <tr key={item.id}>
                     <td className="border p-2">{item.nombre}</td>
                     <td className="border p-2">{item.plan || '-'}</td>
+                    <td className="border p-2">{item.coseguroTipo || '-'}</td>
                     <td className="border p-2">{item.observaciones || '-'}</td>
                     <td className="border p-2">
                       <button onClick={() => openEditObra(item)} className="bg-yellow-500 text-white px-2 py-1 rounded">
@@ -350,6 +400,20 @@ export default function ConfigPage() {
                     placeholder="Opcional"
                   />
                 </div>
+
+                <div className="mb-3">
+                  <label className="block mb-1">Coseguro</label>
+                  <select
+                    className="border px-3 py-2 rounded w-full"
+                    value={obrasForm.coseguroTipo}
+                    onChange={(e) => setObrasForm({ ...obrasForm, coseguroTipo: e.target.value })}
+                  >
+                    <option value="">Sin coseguro</option>
+                    <option value="COSEGURO1">Coseguro 1</option>
+                    <option value="COSEGURO2">Coseguro 2</option>
+                  </select>
+                </div>
+
                 <div className="mb-4">
                   <label className="block mb-1">Observaciones</label>
                   <textarea
@@ -370,6 +434,46 @@ export default function ConfigPage() {
                 </div>
               </form>
             </div>
+          )}
+        </>
+      )}
+
+      {tab === 'coseguros' && (
+        <>
+          {cosegurosError && <div className="bg-red-100 text-red-700 p-2 rounded mb-4">{cosegurosError}</div>}
+
+          {cosegurosLoading ? (
+            <p>Cargando...</p>
+          ) : (
+            <form onSubmit={handleSubmitCoseguros} className="bg-white border border-gray-200 rounded-lg p-4 max-w-md">
+              <div className="mb-3">
+                <label className="block mb-1">Coseguro 1</label>
+                <input
+                  type="number"
+                  min={0}
+                  className="border px-3 py-2 rounded w-full"
+                  value={cosegurosForm.coseguro1}
+                  onChange={(e) => setCosegurosForm((p) => ({ ...p, coseguro1: e.target.value }))}
+                  required
+                />
+              </div>
+
+              <div className="mb-4">
+                <label className="block mb-1">Coseguro 2</label>
+                <input
+                  type="number"
+                  min={0}
+                  className="border px-3 py-2 rounded w-full"
+                  value={cosegurosForm.coseguro2}
+                  onChange={(e) => setCosegurosForm((p) => ({ ...p, coseguro2: e.target.value }))}
+                  required
+                />
+              </div>
+
+              <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded">
+                Guardar
+              </button>
+            </form>
           )}
         </>
       )}

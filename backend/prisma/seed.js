@@ -17,9 +17,9 @@ async function main() {
     roleRows[name] = role;
   }
 
-  const adminEmail = 'admin@centro.com';
-  const adminNombre = 'Administrador';
-  const adminPassword = 'Admin123!';
+  const adminEmail = process.env.ADMIN_EMAIL || 'admin@centro.com';
+  const adminNombre = process.env.ADMIN_NOMBRE || 'Administrador';
+  const adminPassword = process.env.ADMIN_PASSWORD || 'Admin123!';
 
   const passwordHash = await bcrypt.hash(adminPassword, 10);
 
@@ -27,6 +27,7 @@ async function main() {
     where: { email: adminEmail },
     update: {
       nombre: adminNombre,
+      passwordHash,
       roleId: roleRows.admin.id
     },
     create: {
