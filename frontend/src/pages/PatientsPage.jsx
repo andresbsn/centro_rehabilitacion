@@ -267,6 +267,7 @@ export default function PatientsPage() {
                   {obrasSociales.map((os) => (
                     <option key={os.id} value={os.id}>
                       {os.nombre}
+                      {os.plan ? ` — ${os.plan}` : ''}
                     </option>
                   ))}
                 </select>

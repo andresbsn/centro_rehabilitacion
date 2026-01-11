@@ -9,6 +9,7 @@ import { PatientDetailPage } from './pages/PatientDetailPage.jsx';
 import ConfigPage from './pages/ConfigPage.jsx';
 import { MassTurnsPage } from './pages/MassTurnsPage.jsx';
 import AgendaPage from './pages/AgendaPage.jsx';
+import ReportesPage from './pages/ReportesPage.jsx';
 
 export default function App() {
   return (
@@ -27,6 +28,7 @@ export default function App() {
         <Route path="pacientes" element={<PatientsPage />} />
         <Route path="pacientes/:id" element={<PatientDetailPage />} />
         <Route path="agenda" element={<AgendaPage />} />
+        <Route path="reportes" element={<ReportesPage />} />
         <Route path="configuracion" element={<ConfigPage />} />
         <Route path="turnos/masivo" element={<MassTurnsPage />} />
       </Route>

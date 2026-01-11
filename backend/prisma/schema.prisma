@@ -45,16 +45,17 @@ model User {
   roleId String
   role   Role   @relation(fields: [roleId], references: [id])
 
-  seguimientos Seguimiento[]
-  turnos       Turno[] @relation("TurnoProfesional")
-  turnosCobrados Turno[] @relation("TurnoCobradoPor")
+  seguimientos          Seguimiento[]
+  turnos                Turno[]               @relation("TurnoProfesional")
+  turnosCobrados        Turno[]               @relation("TurnoCobradoPor")
+  pagosGimnasioCobrados PagoMensualGimnasio[] @relation("PagoGimnasioCobradoPor")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
 model ObraSocial {
-  id            String @id @default(cuid())
+  id            String  @id @default(cuid())
   nombre        String
   plan          String?
   observaciones String?
@@ -79,6 +80,27 @@ model ConfiguracionCoseguros {
   updatedAt DateTime @updatedAt
 }
 
+model PagoMensualGimnasio {
+  id String @id @default(cuid())
+
+  pacienteId String
+  paciente   Paciente @relation(fields: [pacienteId], references: [id], onDelete: Cascade)
+
+  yearMonth String
+  importe   Int    @default(0)
+
+  cobrado      Boolean   @default(false)
+  cobradoAt    DateTime?
+  cobradoPorId String?
+  cobradoPor   User?     @relation("PagoGimnasioCobradoPor", fields: [cobradoPorId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([pacienteId, yearMonth])
+  @@index([yearMonth])
+}
+
 model Paciente {
   id                 String   @id @default(cuid())
   nombre             String
@@ -91,9 +113,10 @@ model Paciente {
   contactoEmergencia String
   activo             Boolean  @default(true)
 
-  obraSocial PacienteObraSocial?
-  seguimientos Seguimiento[]
-  turnos       Turno[]
+  obraSocial             PacienteObraSocial?
+  seguimientos           Seguimiento[]
+  turnos                 Turno[]
+  pagosMensualesGimnasio PagoMensualGimnasio[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -137,9 +160,9 @@ model Seguimiento {
   paciente   Paciente @relation(fields: [pacienteId], references: [id], onDelete: Cascade)
 
   profesionalId String
-  profesional   User @relation(fields: [profesionalId], references: [id])
+  profesional   User   @relation(fields: [profesionalId], references: [id])
 
-  fecha DateTime @default(now())
+  fecha DateTime        @default(now())
   tipo  SeguimientoTipo
   texto String
 
@@ -160,7 +183,7 @@ model Turno {
   especialidad   Especialidad @relation(fields: [especialidadId], references: [id])
 
   profesionalId String?
-  profesional   User? @relation("TurnoProfesional", fields: [profesionalId], references: [id])
+  profesional   User?   @relation("TurnoProfesional", fields: [profesionalId], references: [id])
 
   startAt DateTime
   endAt   DateTime
@@ -168,11 +191,11 @@ model Turno {
   estado TurnoEstado @default(RESERVADO)
   notas  String?
 
-  importeCoseguro Int @default(0)
-  cobrado         Boolean  @default(false)
+  importeCoseguro Int       @default(0)
+  cobrado         Boolean   @default(false)
   cobradoAt       DateTime?
   cobradoPorId    String?
-  cobradoPor      User? @relation("TurnoCobradoPor", fields: [cobradoPorId], references: [id])
+  cobradoPor      User?     @relation("TurnoCobradoPor", fields: [cobradoPorId], references: [id])
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

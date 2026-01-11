@@ -10,6 +10,7 @@ export function MassTurnsPage() {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const [preview, setPreview] = useState(null);
   const [result, setResult] = useState(null);
 
@@ -23,8 +24,36 @@ export function MassTurnsPage() {
     horaHasta: '13:00',
     diasSemana: [1, 2, 3, 4, 5],
     estado: 'pendiente',
-    notas: ''
+    notas: '',
+    importeMensualGimnasio: ''
   });
+
+  const initialForm = useMemo(
+    () => ({
+      pacienteId: '',
+      especialidadId: '',
+      profesionalId: '',
+      desde: '',
+      hasta: '',
+      horaDesde: '09:00',
+      horaHasta: '13:00',
+      diasSemana: [1, 2, 3, 4, 5],
+      estado: 'pendiente',
+      notas: '',
+      importeMensualGimnasio: ''
+    }),
+    []
+  );
+
+  const selectedEspecialidad = useMemo(
+    () => especialidades.find((e) => e.id === form.especialidadId) || null,
+    [especialidades, form.especialidadId]
+  );
+
+  const isGimnasio = useMemo(() => {
+    const n = String(selectedEspecialidad?.nombre || '').trim().toLowerCase();
+    return n === 'gimnasio';
+  }, [selectedEspecialidad]);
 
   const dias = useMemo(
     () => [
@@ -64,6 +93,7 @@ export function MassTurnsPage() {
   async function doPreview() {
     setLoading(true);
     setError('');
+    setSuccess('');
     setResult(null);
     try {
       const body = {
@@ -76,7 +106,8 @@ export function MassTurnsPage() {
         horaHasta: form.horaHasta,
         diasSemana: form.diasSemana,
         estado: form.estado,
-        notas: form.notas || null
+        notas: form.notas || null,
+        ...(isGimnasio ? { importeMensualGimnasio: Number(form.importeMensualGimnasio || 0) } : {})
       };
 
       const data = await apiFetch('/api/turnos/masivo/preview', { token, method: 'POST', body });
@@ -91,6 +122,7 @@ export function MassTurnsPage() {
   async function doConfirm() {
     setLoading(true);
     setError('');
+    setSuccess('');
     try {
       const body = {
         pacienteId: form.pacienteId,
@@ -102,11 +134,16 @@ export function MassTurnsPage() {
         horaHasta: form.horaHasta,
         diasSemana: form.diasSemana,
         estado: form.estado,
-        notas: form.notas || null
+        notas: form.notas || null,
+        ...(isGimnasio ? { importeMensualGimnasio: Number(form.importeMensualGimnasio || 0) } : {})
       };
 
       const data = await apiFetch('/api/turnos/masivo/confirm', { token, method: 'POST', body });
       setResult(data);
+      setSuccess(`Se crearon ${data.createdCount} turnos. Saltados por conflicto: ${data.skippedConflicts}.`);
+      setPreview(null);
+      setResult(null);
+      setForm(initialForm);
     } catch (e) {
       setError(e.message || 'Error');
     } finally {
@@ -122,7 +159,8 @@ export function MassTurnsPage() {
     form.horaDesde &&
     form.horaHasta &&
     Array.isArray(form.diasSemana) &&
-    form.diasSemana.length > 0;
+    form.diasSemana.length > 0 &&
+    (!isGimnasio || Number(form.importeMensualGimnasio || 0) > 0);
 
   return (
     <div>
@@ -130,6 +168,7 @@ export function MassTurnsPage() {
         <h1 className="text-2xl font-bold">Carga masiva de turnos</h1>
       </div>
 
+      {success ? <div className="bg-green-50 text-green-700 px-4 py-2 rounded-lg mb-4">{success}</div> : null}
       {error ? <div className="bg-red-50 text-red-600 px-4 py-2 rounded-lg mb-4">{error}</div> : null}
 
       <div className="bg-white border border-gray-200 rounded-lg p-5 mb-4">
@@ -146,6 +185,17 @@ export function MassTurnsPage() {
               </option>
             ))}
           </select>
+
+          {isGimnasio ? (
+            <input
+              type="number"
+              min={0}
+              className="border px-3 py-2 rounded-lg"
+              placeholder="Importe mensual gimnasio"
+              value={form.importeMensualGimnasio}
+              onChange={(e) => setForm((p) => ({ ...p, importeMensualGimnasio: e.target.value }))}
+            />
+          ) : null}
 
           <select
             className="border px-3 py-2 rounded-lg"

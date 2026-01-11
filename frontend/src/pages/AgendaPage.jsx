@@ -14,9 +14,11 @@ export default function AgendaPage() {
   const [view, setView] = useState('tabla');
   const [showCreate, setShowCreate] = useState(false);
 
+  const today = new Date().toISOString().slice(0, 10);
+
   const [filters, setFilters] = useState({
-    desde: '',
-    hasta: '',
+    desde: today,
+    hasta: today,
     pacienteId: '',
     especialidadId: '',
     profesionalId: '',

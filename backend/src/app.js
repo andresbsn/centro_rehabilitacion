@@ -13,6 +13,8 @@ import { especialidadesRouter } from './routes/especialidades.routes.js';
 import { turnosRouter } from './routes/turnos.routes.js';
 import { usuariosRouter } from './routes/usuarios.routes.js';
 import { configRouter } from './routes/config.routes.js';
+import { reportesRouter } from './routes/reportes.routes.js';
+import { pagosGimnasioRouter } from './routes/pagosGimnasio.routes.js';
 
 export function buildApp() {
   const app = express();
@@ -33,6 +35,8 @@ export function buildApp() {
   app.use('/api/turnos', turnosRouter);
   app.use('/api/usuarios', usuariosRouter);
   app.use('/api/config', configRouter);
+  app.use('/api/reportes', reportesRouter);
+  app.use('/api/pagos-gimnasio', pagosGimnasioRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

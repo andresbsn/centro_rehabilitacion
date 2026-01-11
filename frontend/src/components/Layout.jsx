@@ -10,8 +10,9 @@ export default function Layout() {
   const menu = [
     { to: '/pacientes', label: 'Pacientes', roles: ['admin', 'recepcion', 'profesional'] },
     { to: '/agenda', label: 'Agenda', roles: ['admin', 'recepcion', 'profesional'] },
-    { to: '/configuracion', label: 'Configuración', roles: ['admin'] },
     { to: '/turnos/masivo', label: 'Carga Masiva', roles: ['admin', 'recepcion'] },
+    { to: '/reportes', label: 'Reportes', roles: ['admin', 'recepcion'] },
+    { to: '/configuracion', label: 'Configuración', roles: ['admin'] },
   ];
 
   const filteredMenu = useMemo(() => {

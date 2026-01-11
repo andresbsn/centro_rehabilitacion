@@ -26,6 +26,9 @@ export function PatientDetailPage() {
   const [turnos, setTurnos] = useState([]);
   const [turnosLoading, setTurnosLoading] = useState(false);
   const [turnosError, setTurnosError] = useState('');
+  const [pagosGimnasio, setPagosGimnasio] = useState([]);
+  const [pagosGimnasioLoading, setPagosGimnasioLoading] = useState(false);
+  const [pagosGimnasioError, setPagosGimnasioError] = useState('');
   const [obrasSociales, setObrasSociales] = useState([]);
   const [editForm, setEditForm] = useState({
     nombre: '',
@@ -66,6 +69,20 @@ export function PatientDetailPage() {
       cancelled = true;
     };
   }, [id, token]);
+
+  async function loadPagosGimnasio() {
+    if (!token) return;
+    setPagosGimnasioLoading(true);
+    setPagosGimnasioError('');
+    try {
+      const data = await apiFetch(`/api/pagos-gimnasio?pacienteId=${encodeURIComponent(id)}`, { token });
+      setPagosGimnasio(data.items || []);
+    } catch (e) {
+      setPagosGimnasioError(e.message || 'Error');
+    } finally {
+      setPagosGimnasioLoading(false);
+    }
+  }
 
   useEffect(() => {
     apiFetch('/api/obras-sociales', { token })
@@ -108,6 +125,7 @@ export function PatientDetailPage() {
     if (activeTab !== 'seguimiento') return;
     loadSeguimientos();
     loadTurnos();
+    loadPagosGimnasio();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
 
@@ -446,6 +464,63 @@ export function PatientDetailPage() {
                   ) : null}
                 </div>
 
+                <div className="bg-white border border-gray-200 rounded-lg p-4 mb-4">
+                  <h2 className="text-lg font-semibold mb-2">Gimnasio (mensual)</h2>
+                  {pagosGimnasioError ? <div className="bg-red-50 text-red-600 px-4 py-2 rounded-lg mb-3">{pagosGimnasioError}</div> : null}
+                  {pagosGimnasioLoading ? <div className="text-gray-600">Cargando...</div> : null}
+
+                  {!pagosGimnasioLoading ? (
+                    <div className="overflow-auto">
+                      <table className="w-full text-sm">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="p-2 text-left">Mes</th>
+                            <th className="p-2 text-right">Importe</th>
+                            <th className="p-2 text-left">Cobrado</th>
+                            <th className="p-2 text-left">Acciones</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {pagosGimnasio.map((p) => (
+                            <tr key={p.id} className="border-t border-gray-100">
+                              <td className="p-2">{p.yearMonth}</td>
+                              <td className="p-2 text-right">{Number(p.importe || 0)}</td>
+                              <td className="p-2">{p.cobrado ? 'Sí' : 'No'}</td>
+                              <td className="p-2">
+                                {canCobrarTurnos && !p.cobrado ? (
+                                  <button
+                                    type="button"
+                                    disabled={saving}
+                                    onClick={async () => {
+                                      const ok = window.confirm(`¿Cobrar gimnasio del mes ${p.yearMonth}?`);
+                                      if (!ok) return;
+                                      try {
+                                        setSaving(true);
+                                        await apiFetch(`/api/pagos-gimnasio/${p.id}/cobrar`, { token, method: 'POST' });
+                                        await loadPagosGimnasio();
+                                      } catch (e) {
+                                        setPagosGimnasioError(e.message || 'Error');
+                                      } finally {
+                                        setSaving(false);
+                                      }
+                                    }}
+                                    className="bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700 transition"
+                                  >
+                                    Cobrar
+                                  </button>
+                                ) : (
+                                  <span className="text-gray-400">-</span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      {!pagosGimnasio.length ? <div className="text-gray-600 mt-2">Sin pagos mensuales generados</div> : null}
+                    </div>
+                  ) : null}
+                </div>
+
                 <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 mb-3">
                   <div className="flex flex-col md:flex-row gap-2">
                     <select
@@ -702,6 +777,7 @@ export function PatientDetailPage() {
                   {obrasSociales.map((os) => (
                     <option key={os.id} value={os.id}>
                       {os.nombre}
+                      {os.plan ? ` — ${os.plan}` : ''}
                     </option>
                   ))}
                 </select>

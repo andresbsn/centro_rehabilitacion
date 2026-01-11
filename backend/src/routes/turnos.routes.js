@@ -36,7 +36,8 @@ const turnoMasivoSchema = z
     horaHasta: z.string().regex(/^\d{2}:\d{2}$/),
     diasSemana: z.array(z.number().int().min(0).max(6)).min(1),
     estado: z.enum(['pendiente', 'confirmado']).optional(),
-    notas: z.string().optional().nullable()
+    notas: z.string().optional().nullable(),
+    importeMensualGimnasio: z.number().int().min(0).optional().nullable()
   })
   .refine((v) => v.desde <= v.hasta, { message: 'Rango de fechas inválido' })
   .refine((v) => v.horaDesde < v.horaHasta, { message: 'Rango horario inválido' });
@@ -128,6 +129,50 @@ async function getOrCreateCosegurosConfig(tx) {
   });
 }
 
+function getYearMonth(date) {
+  const d = new Date(date);
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  return `${y}-${m}`;
+}
+
+function monthStartUtc(year, monthIndex0) {
+  return new Date(Date.UTC(year, monthIndex0, 1));
+}
+
+function addMonthsUtc(date, months) {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + months, 1));
+}
+
+async function ensurePagoMensualGimnasio({ pacienteId, yearMonth, importe, tx }) {
+  const client = tx || prisma;
+  const existing = await client.pagoMensualGimnasio.findUnique({
+    where: {
+      pacienteId_yearMonth: {
+        pacienteId,
+        yearMonth
+      }
+    }
+  });
+
+  if (!existing) {
+    return client.pagoMensualGimnasio.create({
+      data: {
+        pacienteId,
+        yearMonth,
+        importe: Number(importe || 0)
+      }
+    });
+  }
+
+  if (existing.cobrado) return existing;
+
+  return client.pagoMensualGimnasio.update({
+    where: { id: existing.id },
+    data: { importe: Number(importe || 0) }
+  });
+}
+
 async function resolveImporteCoseguroForPacienteId(pacienteId, tx) {
   const client = tx || prisma;
   const paciente = await client.paciente.findUnique({
@@ -146,6 +191,14 @@ async function resolveImporteCoseguroForPacienteId(pacienteId, tx) {
 
   const config = await getOrCreateCosegurosConfig(client);
   return tipo === 'COSEGURO1' ? config.coseguro1 : config.coseguro2;
+}
+
+async function resolveImporteCoseguroForTurno({ pacienteId, especialidadId, tx }) {
+  const client = tx || prisma;
+  const especialidad = await client.especialidad.findUnique({ where: { id: especialidadId } });
+  const nombre = String(especialidad?.nombre || '').trim().toLowerCase();
+  if (nombre === 'gimnasio') return 0;
+  return resolveImporteCoseguroForPacienteId(pacienteId, client);
 }
 
 async function buildMasivoPreview({ pacienteId, especialidadId, profesionalId, desde, hasta, horaDesde, horaHasta, diasSemana, estado, notas }) {
@@ -348,9 +401,35 @@ turnosRouter.post('/masivo/confirm', validateBody(turnoMasivoSchema), async (req
     const preview = await buildMasivoPreview(data);
     const creatable = preview.items.filter((i) => !i.conflict);
 
+    const isGimnasio = String(preview?.especialidad?.nombre || '').trim().toLowerCase() === 'gimnasio';
+    if (isGimnasio) {
+      const importe = Number(data.importeMensualGimnasio || 0);
+      if (!importe || importe <= 0) return next(badRequest('Importe mensual de gimnasio requerido', 'GIMNASIO_IMPORTE_REQUIRED'));
+    }
+
     const created = await prisma.$transaction(async (tx) => {
       const rows = [];
-      const importeCoseguro = await resolveImporteCoseguroForPacienteId(data.pacienteId, tx);
+      const importeCoseguro = await resolveImporteCoseguroForTurno({ pacienteId: data.pacienteId, especialidadId: data.especialidadId, tx });
+
+      if (isGimnasio) {
+        const start = parseUtcDateOnly(data.desde);
+        const end = parseUtcDateOnly(data.hasta);
+        const first = monthStartUtc(start.getUTCFullYear(), start.getUTCMonth());
+        const last = monthStartUtc(end.getUTCFullYear(), end.getUTCMonth());
+
+        let cursor = new Date(first);
+        while (cursor <= last) {
+          const ym = getYearMonth(cursor);
+          await ensurePagoMensualGimnasio({
+            pacienteId: data.pacienteId,
+            yearMonth: ym,
+            importe: Number(data.importeMensualGimnasio || 0),
+            tx
+          });
+          cursor = addMonthsUtc(cursor, 1);
+        }
+      }
+
       for (const i of creatable) {
         const turno = await tx.turno.create({
           data: {
@@ -441,7 +520,7 @@ turnosRouter.post('/', validateBody(turnoCreateSchema), async (req, res, next) =
       return next(badRequest('Ya existe un turno en ese horario para esta especialidad/profesional', 'OVERLAP'));
     }
 
-    const importeCoseguro = await resolveImporteCoseguroForPacienteId(pacienteId);
+    const importeCoseguro = await resolveImporteCoseguroForTurno({ pacienteId, especialidadId });
 
     const turno = await prisma.turno.create({
       data: {
