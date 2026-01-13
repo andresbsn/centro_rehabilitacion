@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { Navigate } from 'react-router-dom';
 import { apiFetch } from '../api/client.js';
 import { useAuth } from '../state/AuthProvider.jsx';
 
@@ -59,7 +60,7 @@ function BarsChart({ data, valueKey, labelKey }) {
 export default function ReportesPage() {
   const { token, user } = useAuth();
 
-  const canView = user?.role === 'admin' || user?.role === 'recepcion';
+  const canView = user?.role === 'admin';
 
   const [filters, setFilters] = useState({
     desde: startOfMonthStr(),
@@ -94,13 +95,7 @@ export default function ReportesPage() {
   const topEspecialidades = useMemo(() => data?.top?.especialidades || [], [data]);
   const porDia = useMemo(() => data?.series?.porDia || [], [data]);
 
-  if (!canView) {
-    return (
-      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-yellow-800">
-        No tenés permisos para ver reportes.
-      </div>
-    );
-  }
+  if (!canView) return <Navigate to="/pacientes" replace />;
 
   return (
     <div className="grid gap-4">

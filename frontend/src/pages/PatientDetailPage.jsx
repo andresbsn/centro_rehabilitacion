@@ -26,12 +26,16 @@ export function PatientDetailPage() {
   const [turnos, setTurnos] = useState([]);
   const [turnosLoading, setTurnosLoading] = useState(false);
   const [turnosError, setTurnosError] = useState('');
+  const [turnosFilters, setTurnosFilters] = useState({ especialidad: '', desde: '', hasta: '', cobrado: '' });
   const [ordenesKinesiologia, setOrdenesKinesiologia] = useState([]);
   const [ordenesKinesiologiaLoading, setOrdenesKinesiologiaLoading] = useState(false);
   const [ordenesKinesiologiaError, setOrdenesKinesiologiaError] = useState('');
   const [pagosGimnasio, setPagosGimnasio] = useState([]);
   const [pagosGimnasioLoading, setPagosGimnasioLoading] = useState(false);
   const [pagosGimnasioError, setPagosGimnasioError] = useState('');
+  const [showCobroGimnasioModal, setShowCobroGimnasioModal] = useState(false);
+  const [cobroGimnasioTarget, setCobroGimnasioTarget] = useState(null);
+  const [cobroGimnasioForm, setCobroGimnasioForm] = useState({ formaPago: 'EFECTIVO', fechaPago: '' });
   const [obrasSociales, setObrasSociales] = useState([]);
   const [editForm, setEditForm] = useState({
     nombre: '',
@@ -50,6 +54,38 @@ export function PatientDetailPage() {
   });
 
   const canCobrarTurnos = user?.role === 'admin' || user?.role === 'recepcion';
+
+  function openCobroGimnasio(p) {
+    const today = new Date().toISOString().slice(0, 10);
+    setCobroGimnasioTarget(p);
+    setCobroGimnasioForm({ formaPago: 'EFECTIVO', fechaPago: today });
+    setShowCobroGimnasioModal(true);
+  }
+
+  async function confirmarCobroGimnasio(e) {
+    e.preventDefault();
+    if (!cobroGimnasioTarget) return;
+    setPagosGimnasioError('');
+    try {
+      setSaving(true);
+      await apiFetch(`/api/pagos-gimnasio/${cobroGimnasioTarget.id}/cobrar`, {
+        token,
+        method: 'POST',
+        body: {
+          formaPago: cobroGimnasioForm.formaPago,
+          fechaPago: cobroGimnasioForm.fechaPago
+        }
+      });
+      setShowCobroGimnasioModal(false);
+      setCobroGimnasioTarget(null);
+      await loadPagosGimnasio();
+      await loadTurnos();
+    } catch (e2) {
+      setPagosGimnasioError(e2.message || 'Error');
+    } finally {
+      setSaving(false);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -137,6 +173,28 @@ export function PatientDetailPage() {
       setTurnosLoading(false);
     }
   }
+
+  const turnosEspecialidades = Array.from(
+    new Set(
+      (turnos || [])
+        .map((t) => String(t.especialidad?.nombre || '').trim())
+        .filter((n) => n)
+    )
+  ).sort((a, b) => a.localeCompare(b));
+
+  const filteredTurnos = (turnos || []).filter((t) => {
+    const esp = String(t.especialidad?.nombre || '').trim();
+    if (turnosFilters.especialidad && esp !== turnosFilters.especialidad) return false;
+
+    const f = String(t.fecha || '').slice(0, 10);
+    if (turnosFilters.desde && f && f < turnosFilters.desde) return false;
+    if (turnosFilters.hasta && f && f > turnosFilters.hasta) return false;
+
+    if (turnosFilters.cobrado === 'si' && !t.cobrado) return false;
+    if (turnosFilters.cobrado === 'no' && t.cobrado) return false;
+
+    return true;
+  });
 
   useEffect(() => {
     if (activeTab !== 'seguimiento') return;
@@ -291,17 +349,23 @@ export function PatientDetailPage() {
           </button>
           <button
             type="button"
-            className="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition"
-            disabled={saving || !paciente || !paciente.activo}
+            className={`${paciente?.activo ? 'bg-red-500 hover:bg-red-600' : 'bg-green-600 hover:bg-green-700'} text-white px-4 py-2 rounded-lg transition`}
+            disabled={saving || !paciente}
             onClick={async () => {
               if (!paciente) return;
-              const ok = window.confirm('¿Inactivar paciente?');
-              if (!ok) return;
-
               try {
                 setSaving(true);
-                const data = await apiFetch(`/api/pacientes/${id}`, { token, method: 'DELETE' });
-                setPaciente(data.paciente);
+                if (paciente.activo) {
+                  const ok = window.confirm('¿Inactivar paciente?');
+                  if (!ok) return;
+                  const data = await apiFetch(`/api/pacientes/${id}`, { token, method: 'DELETE' });
+                  setPaciente(data.paciente);
+                } else {
+                  const ok = window.confirm('¿Activar paciente?');
+                  if (!ok) return;
+                  const data = await apiFetch(`/api/pacientes/${id}`, { token, method: 'PUT', body: { activo: true } });
+                  setPaciente(data.paciente);
+                }
               } catch (e) {
                 setError(e.message || 'Error');
               } finally {
@@ -309,7 +373,7 @@ export function PatientDetailPage() {
               }
             }}
           >
-            {saving ? 'Procesando...' : 'Inactivar'}
+            {saving ? 'Procesando...' : paciente?.activo ? 'Inactivar' : 'Activar'}
           </button>
         </div>
       </div>
@@ -422,11 +486,59 @@ export function PatientDetailPage() {
 
                   {!turnosLoading ? (
                     <div className="overflow-auto">
+                      <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-3">
+                        <div>
+                          <div className="text-xs text-gray-500 mb-1">Especialidad</div>
+                          <select
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                            value={turnosFilters.especialidad}
+                            onChange={(e) => setTurnosFilters((p) => ({ ...p, especialidad: e.target.value }))}
+                          >
+                            <option value="">Todas</option>
+                            {turnosEspecialidades.map((n) => (
+                              <option key={n} value={n}>
+                                {n}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <div className="text-xs text-gray-500 mb-1">Desde</div>
+                          <input
+                            type="date"
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                            value={turnosFilters.desde}
+                            onChange={(e) => setTurnosFilters((p) => ({ ...p, desde: e.target.value }))}
+                          />
+                        </div>
+                        <div>
+                          <div className="text-xs text-gray-500 mb-1">Hasta</div>
+                          <input
+                            type="date"
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                            value={turnosFilters.hasta}
+                            onChange={(e) => setTurnosFilters((p) => ({ ...p, hasta: e.target.value }))}
+                          />
+                        </div>
+                        <div>
+                          <div className="text-xs text-gray-500 mb-1">Cobrado</div>
+                          <select
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                            value={turnosFilters.cobrado}
+                            onChange={(e) => setTurnosFilters((p) => ({ ...p, cobrado: e.target.value }))}
+                          >
+                            <option value="">Todos</option>
+                            <option value="si">Sí</option>
+                            <option value="no">No</option>
+                          </select>
+                        </div>
+                      </div>
+
                       <table className="w-full text-sm">
                         <thead className="bg-gray-50">
                           <tr>
-                            <th className="p-2 text-left">Fecha</th>
-                            <th className="p-2 text-left">Hora</th>
+                            <th className="text-left p-2">Fecha</th>
+                            <th className="text-left p-2">Hora</th>
                             <th className="p-2 text-left">Especialidad</th>
                             <th className="p-2 text-left">Orden</th>
                             <th className="p-2 text-left">Profesional</th>
@@ -437,7 +549,7 @@ export function PatientDetailPage() {
                           </tr>
                         </thead>
                         <tbody>
-                          {turnos.map((t) => (
+                          {filteredTurnos.map((t) => (
                             <tr key={t.id} className="border-t border-gray-100">
                               <td className="p-2">{String(t.fecha).slice(0, 10)}</td>
                               <td className="p-2">
@@ -481,7 +593,7 @@ export function PatientDetailPage() {
                           ))}
                         </tbody>
                       </table>
-                      {!turnos.length ? <div className="text-gray-600 mt-2">Sin turnos</div> : null}
+                      {!filteredTurnos.length ? <div className="text-gray-600 mt-2">Sin turnos</div> : null}
                     </div>
                   ) : null}
                 </div>
@@ -560,24 +672,26 @@ export function PatientDetailPage() {
                             <tr key={p.id} className="border-t border-gray-100">
                               <td className="p-2">{p.yearMonth}</td>
                               <td className="p-2 text-right">{Number(p.importe || 0)}</td>
-                              <td className="p-2">{p.cobrado ? 'Sí' : 'No'}</td>
+                              <td className="p-2">
+                                {p.cobrado ? (
+                                  <div className="text-sm">
+                                    <div className="font-medium text-green-700">Sí</div>
+                                    <div className="text-xs text-gray-600">
+                                      {p.cobradoAt ? String(p.cobradoAt).slice(0, 10) : '-'}
+                                      {p.formaPago ? ` · ${p.formaPago}` : ''}
+                                    </div>
+                                  </div>
+                                ) : (
+                                  'No'
+                                )}
+                              </td>
                               <td className="p-2">
                                 {canCobrarTurnos && !p.cobrado ? (
                                   <button
                                     type="button"
                                     disabled={saving}
                                     onClick={async () => {
-                                      const ok = window.confirm(`¿Cobrar gimnasio del mes ${p.yearMonth}?`);
-                                      if (!ok) return;
-                                      try {
-                                        setSaving(true);
-                                        await apiFetch(`/api/pagos-gimnasio/${p.id}/cobrar`, { token, method: 'POST' });
-                                        await loadPagosGimnasio();
-                                      } catch (e) {
-                                        setPagosGimnasioError(e.message || 'Error');
-                                      } finally {
-                                        setSaving(false);
-                                      }
+                                      openCobroGimnasio(p);
                                     }}
                                     className="bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700 transition"
                                   >
@@ -596,7 +710,7 @@ export function PatientDetailPage() {
                   ) : null}
                 </div>
 
-                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 mb-3">
+                {/* <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 mb-3">
                   <div className="flex flex-col md:flex-row gap-2">
                     <select
                       className="border px-3 py-2 rounded-lg"
@@ -624,24 +738,10 @@ export function PatientDetailPage() {
                       Filtrar
                     </button>
                   </div>
+                </div> */}
 
-                  {canMutateSeguimiento(null) ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setEditingSeg(null);
-                        setSegForm({ tipo: 'GENERAL', texto: '' });
-                        setShowSegModal(true);
-                      }}
-                      className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition"
-                    >
-                      Nuevo
-                    </button>
-                  ) : null}
-                </div>
-
-                {segLoading ? <div className="text-gray-600">Cargando...</div> : null}
-                {!segLoading && seguimientos.length === 0 ? <div className="text-gray-600">Sin seguimientos</div> : null}
+                {/* {segLoading ? <div className="text-gray-600">Cargando...</div> : null}
+                {!segLoading && seguimientos.length === 0 ? <div className="text-gray-600">Sin seguimientos</div> : null} */}
 
                 <div className="grid gap-3">
                   {seguimientos.map((s) => (
@@ -733,6 +833,74 @@ export function PatientDetailPage() {
               <button
                 type="button"
                 onClick={() => setShowSegModal(false)}
+                className="bg-gray-200 px-4 py-2 rounded-lg flex-1 hover:bg-gray-300 transition"
+              >
+                Cancelar
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
+
+      {showCobroGimnasioModal ? (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <form onSubmit={confirmarCobroGimnasio} className="bg-white w-full max-w-md rounded-xl p-6 border border-gray-200">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold">Cobrar gimnasio</h2>
+              <button
+                type="button"
+                className="bg-gray-200 px-3 py-2 rounded-lg hover:bg-gray-300 transition"
+                onClick={() => {
+                  setShowCobroGimnasioModal(false);
+                  setCobroGimnasioTarget(null);
+                }}
+              >
+                Cerrar
+              </button>
+            </div>
+
+            <div className="text-sm text-gray-700 mb-3">
+              Mes: <span className="font-semibold">{cobroGimnasioTarget?.yearMonth}</span> · Importe:{' '}
+              <span className="font-semibold">{Number(cobroGimnasioTarget?.importe || 0)}</span>
+            </div>
+
+            <div className="grid gap-3 mb-4">
+              <select
+                className="border px-3 py-2 rounded-lg"
+                value={cobroGimnasioForm.formaPago}
+                onChange={(e) => setCobroGimnasioForm((p) => ({ ...p, formaPago: e.target.value }))}
+              >
+                <option value="EFECTIVO">Efectivo</option>
+                <option value="TRANSFERENCIA">Transferencia</option>
+                <option value="DEBITO">Débito</option>
+                <option value="CREDITO">Crédito</option>
+                <option value="OTRO">Otro</option>
+              </select>
+
+              <input
+                type="date"
+                className="border px-3 py-2 rounded-lg"
+                value={cobroGimnasioForm.fechaPago}
+                onChange={(e) => setCobroGimnasioForm((p) => ({ ...p, fechaPago: e.target.value }))}
+                required
+              />
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                type="submit"
+                disabled={saving}
+                className="bg-green-600 text-white px-4 py-2 rounded-lg flex-1 hover:bg-green-700 transition"
+              >
+                {saving ? 'Procesando...' : 'Cobrar'}
+              </button>
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => {
+                  setShowCobroGimnasioModal(false);
+                  setCobroGimnasioTarget(null);
+                }}
                 className="bg-gray-200 px-4 py-2 rounded-lg flex-1 hover:bg-gray-300 transition"
               >
                 Cancelar

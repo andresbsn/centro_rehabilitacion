@@ -11,7 +11,7 @@ export default function Layout() {
     { to: '/pacientes', label: 'Pacientes', roles: ['admin', 'recepcion', 'profesional'] },
     { to: '/agenda', label: 'Agenda', roles: ['admin', 'recepcion', 'profesional'] },
     { to: '/turnos/masivo', label: 'Carga Masiva', roles: ['admin', 'recepcion'] },
-    { to: '/reportes', label: 'Reportes', roles: ['admin', 'recepcion'] },
+    { to: '/reportes', label: 'Reportes', roles: ['admin'] },
     { to: '/configuracion', label: 'Configuración', roles: ['admin'] },
   ];
 

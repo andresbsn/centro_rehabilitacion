@@ -89,6 +89,8 @@ model PagoMensualGimnasio {
   yearMonth String
   importe   Int    @default(0)
 
+  formaPago String?
+
   cobrado      Boolean   @default(false)
   cobradoAt    DateTime?
   cobradoPorId String?

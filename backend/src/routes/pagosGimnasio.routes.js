@@ -15,6 +15,11 @@ const listQuerySchema = z.object({
   yearMonth: z.string().regex(/^\d{4}-\d{2}$/).optional()
 });
 
+const cobrarSchema = z.object({
+  formaPago: z.enum(['EFECTIVO', 'TRANSFERENCIA', 'DEBITO', 'CREDITO', 'OTRO']).optional().nullable(),
+  fechaPago: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable()
+});
+
 pagosGimnasioRouter.get('/', requireRole(['admin', 'recepcion']), async (req, res, next) => {
   try {
     const parsed = listQuerySchema.safeParse(req.query);
@@ -40,29 +45,71 @@ pagosGimnasioRouter.get('/', requireRole(['admin', 'recepcion']), async (req, re
   }
 });
 
-pagosGimnasioRouter.post('/:id/cobrar', requireRole(['admin', 'recepcion']), async (req, res, next) => {
+pagosGimnasioRouter.post(
+  '/:id/cobrar',
+  requireRole(['admin', 'recepcion']),
+  validateBody(cobrarSchema),
+  async (req, res, next) => {
   try {
     const id = req.params.id;
+    const data = req.body;
 
     const existing = await prisma.pagoMensualGimnasio.findUnique({ where: { id } });
     if (!existing) return next(new HttpError(404, 'NOT_FOUND', 'Pago mensual no encontrado'));
     if (existing.cobrado) return next(badRequest('El mes ya está cobrado', 'ALREADY_PAID'));
 
-    const updated = await prisma.pagoMensualGimnasio.update({
-      where: { id },
-      data: {
-        cobrado: true,
-        cobradoAt: new Date(),
-        cobradoPorId: req.user.id
-      },
-      include: {
-        paciente: { select: { id: true, nombre: true, apellido: true } },
-        cobradoPor: { select: { id: true, nombre: true } }
-      }
+    const pagoDate = data.fechaPago ? new Date(`${data.fechaPago}T00:00:00.000Z`) : new Date();
+
+    const [yearStr, monthStr] = String(existing.yearMonth).split('-');
+    const year = Number(yearStr);
+    const monthIndex0 = Number(monthStr) - 1;
+    const monthStart = new Date(Date.UTC(year, monthIndex0, 1, 0, 0, 0, 0));
+    const monthEnd = new Date(Date.UTC(year, monthIndex0 + 1, 1, 0, 0, 0, 0));
+
+    const especialidad = await prisma.especialidad.findFirst({
+      where: { nombre: { equals: 'Gimnasio', mode: 'insensitive' } },
+      select: { id: true }
     });
 
-    res.json({ pago: updated });
+    const result = await prisma.$transaction(async (tx) => {
+      const updatedPago = await tx.pagoMensualGimnasio.update({
+        where: { id },
+        data: {
+          cobrado: true,
+          cobradoAt: pagoDate,
+          cobradoPorId: req.user.id,
+          formaPago: data.formaPago || null
+        },
+        include: {
+          paciente: { select: { id: true, nombre: true, apellido: true } },
+          cobradoPor: { select: { id: true, nombre: true } }
+        }
+      });
+
+      let updatedTurnosCount = 0;
+      if (especialidad?.id) {
+        const upd = await tx.turno.updateMany({
+          where: {
+            pacienteId: existing.pacienteId,
+            especialidadId: especialidad.id,
+            startAt: { gte: monthStart, lt: monthEnd },
+            cobrado: false
+          },
+          data: {
+            cobrado: true,
+            cobradoAt: pagoDate,
+            cobradoPorId: req.user.id
+          }
+        });
+        updatedTurnosCount = upd.count;
+      }
+
+      return { pago: updatedPago, updatedTurnosCount };
+    });
+
+    res.json(result);
   } catch (e) {
     next(e);
   }
-});
+}
+);
