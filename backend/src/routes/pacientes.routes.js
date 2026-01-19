@@ -5,6 +5,8 @@ import { prisma } from '../prisma.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { validateBody } from '../middleware/validate.js';
 import { HttpError, badRequest } from '../utils/httpError.js';
+import { registrarAuditoria, getClientIp } from '../services/auditoria.js';
+import { parsePagination } from '../utils/pagination.js';
 
 export const pacientesRouter = Router();
 
@@ -57,16 +59,6 @@ const seguimientoUpdateSchema = z.object({
   tipo: z.enum(seguimientoTipoValues).optional(),
   texto: z.string().min(1).optional()
 });
-
-function parsePagination(query) {
-  const page = Number(query.page || 1);
-  const pageSize = Number(query.pageSize || 20);
-
-  const safePage = Number.isFinite(page) && page > 0 ? page : 1;
-  const safePageSize = Number.isFinite(pageSize) && pageSize > 0 && pageSize <= 100 ? pageSize : 20;
-
-  return { page: safePage, pageSize: safePageSize, skip: (safePage - 1) * safePageSize, take: safePageSize };
-}
 
 function buildSearchWhere(query) {
   const search = query.search ? String(query.search).trim() : '';
@@ -364,6 +356,15 @@ pacientesRouter.post('/', requireRole(['admin', 'recepcion']), validateBody(paci
       return paciente;
     });
 
+    registrarAuditoria({
+      accion: 'CREAR',
+      entidad: 'Paciente',
+      entidadId: created.id,
+      usuarioId: req.user?.id,
+      datos: { nombre: created.nombre, apellido: created.apellido, dni: created.dni },
+      ip: getClientIp(req)
+    });
+
     res.status(201).json({ paciente: created });
   } catch (e) {
     if (e?.code === 'P2002') {
@@ -445,6 +446,15 @@ pacientesRouter.put('/:id', requireRole(['admin', 'recepcion']), validateBody(pa
       return paciente;
     });
 
+    registrarAuditoria({
+      accion: 'ACTUALIZAR',
+      entidad: 'Paciente',
+      entidadId: updated.id,
+      usuarioId: req.user?.id,
+      datos: { campos: Object.keys(data) },
+      ip: getClientIp(req)
+    });
+
     res.json({ paciente: updated });
   } catch (e) {
     if (e?.code === 'P2002') {
@@ -464,6 +474,15 @@ pacientesRouter.delete('/:id', requireRole(['admin', 'recepcion']), async (req, 
     const updated = await prisma.paciente.update({
       where: { id },
       data: { activo: false }
+    });
+
+    registrarAuditoria({
+      accion: 'INACTIVAR',
+      entidad: 'Paciente',
+      entidadId: id,
+      usuarioId: req.user?.id,
+      datos: { nombre: paciente.nombre, apellido: paciente.apellido },
+      ip: getClientIp(req)
     });
 
     res.json({ paciente: updated });

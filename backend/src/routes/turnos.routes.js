@@ -6,6 +6,23 @@ import { requireAuth, requireRole } from '../middleware/auth.js';
 import { validateBody } from '../middleware/validate.js';
 import { HttpError, badRequest } from '../utils/httpError.js';
 import { sendEmail } from '../utils/mailer.js';
+import { registrarAuditoria, getClientIp } from '../services/auditoria.js';
+import { parseUtcDateOnly, addDays, parseTimeToMinutes, minutesToTimeStr } from '../utils/date.js';
+import {
+  estadoToDb,
+  estadoFromDb,
+  serializeTurno,
+  TURNO_INCLUDE,
+  getOrCreateCosegurosConfig,
+  resolveImporteCoseguroForPacienteId,
+  resolveImporteCoseguroForTurno,
+  getYearMonth,
+  monthStartUtc,
+  addMonthsUtc,
+  ensurePagoMensualGimnasio,
+  isKinesiologiaEspecialidad,
+  isGimnasioEspecialidad
+} from '../services/turnos.service.js';
 
 export const turnosRouter = Router();
 
@@ -44,164 +61,7 @@ const turnoMasivoSchema = z
   .refine((v) => v.desde <= v.hasta, { message: 'Rango de fechas inválido' })
   .refine((v) => v.horaDesde < v.horaHasta, { message: 'Rango horario inválido' });
 
-function toIso(date) {
-  return new Date(date).toISOString();
-}
-
-function getFechaStr(date) {
-  return toIso(date).slice(0, 10);
-}
-
-function getHoraStr(date) {
-  return toIso(date).slice(11, 16);
-}
-
-function estadoToDb(estado) {
-  if (!estado) return undefined;
-  switch (estado) {
-    case 'pendiente':
-      return 'RESERVADO';
-    case 'confirmado':
-      return 'CONFIRMADO';
-    case 'realizado':
-      return 'ASISTIO';
-    case 'cancelado':
-      return 'CANCELADO';
-    default:
-      return undefined;
-  }
-}
-
-function estadoFromDb(estado) {
-  if (!estado) return 'pendiente';
-  switch (estado) {
-    case 'RESERVADO':
-      return 'pendiente';
-    case 'CONFIRMADO':
-      return 'confirmado';
-    case 'ASISTIO':
-      return 'realizado';
-    case 'CANCELADO':
-      return 'cancelado';
-    case 'AUSENTE':
-      return 'cancelado';
-    default:
-      return 'pendiente';
-  }
-}
-
-function serializeTurno(turno) {
-  if (!turno) return turno;
-  return {
-    ...turno,
-    fecha: getFechaStr(turno.startAt),
-    horaInicio: getHoraStr(turno.startAt),
-    horaFin: getHoraStr(turno.endAt),
-    estado: estadoFromDb(turno.estado)
-  };
-}
-
-function addDays(date, days) {
-  const d = new Date(date);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d;
-}
-
-function parseUtcDateOnly(yyyyMmDd) {
-  return new Date(`${yyyyMmDd}T00:00:00.000Z`);
-}
-
-function parseTimeToMinutes(hhmm) {
-  const [h, m] = hhmm.split(':').map(Number);
-  return h * 60 + m;
-}
-
-function minutesToTimeStr(totalMin) {
-  const h = String(Math.floor(totalMin / 60)).padStart(2, '0');
-  const m = String(totalMin % 60).padStart(2, '0');
-  return `${h}:${m}`;
-}
-
-async function getOrCreateCosegurosConfig(tx) {
-  const client = tx || prisma;
-  return client.configuracionCoseguros.upsert({
-    where: { id: 'default' },
-    create: { id: 'default', coseguro1: 0, coseguro2: 0 },
-    update: {}
-  });
-}
-
-function getYearMonth(date) {
-  const d = new Date(date);
-  const y = d.getUTCFullYear();
-  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
-  return `${y}-${m}`;
-}
-
-function monthStartUtc(year, monthIndex0) {
-  return new Date(Date.UTC(year, monthIndex0, 1));
-}
-
-function addMonthsUtc(date, months) {
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + months, 1));
-}
-
-async function ensurePagoMensualGimnasio({ pacienteId, yearMonth, importe, tx }) {
-  const client = tx || prisma;
-  const existing = await client.pagoMensualGimnasio.findUnique({
-    where: {
-      pacienteId_yearMonth: {
-        pacienteId,
-        yearMonth
-      }
-    }
-  });
-
-  if (!existing) {
-    return client.pagoMensualGimnasio.create({
-      data: {
-        pacienteId,
-        yearMonth,
-        importe: Number(importe || 0)
-      }
-    });
-  }
-
-  if (existing.cobrado) return existing;
-
-  return client.pagoMensualGimnasio.update({
-    where: { id: existing.id },
-    data: { importe: Number(importe || 0) }
-  });
-}
-
-async function resolveImporteCoseguroForPacienteId(pacienteId, tx) {
-  const client = tx || prisma;
-  const paciente = await client.paciente.findUnique({
-    where: { id: pacienteId },
-    include: {
-      obraSocial: {
-        include: {
-          obraSocial: true
-        }
-      }
-    }
-  });
-
-  const tipo = paciente?.obraSocial?.obraSocial?.coseguroTipo;
-  if (!tipo) return 0;
-
-  const config = await getOrCreateCosegurosConfig(client);
-  return tipo === 'COSEGURO1' ? config.coseguro1 : config.coseguro2;
-}
-
-async function resolveImporteCoseguroForTurno({ pacienteId, especialidadId, tx }) {
-  const client = tx || prisma;
-  const especialidad = await client.especialidad.findUnique({ where: { id: especialidadId } });
-  const nombre = String(especialidad?.nombre || '').trim().toLowerCase();
-  if (nombre === 'gimnasio') return 0;
-  return resolveImporteCoseguroForPacienteId(pacienteId, client);
-}
+// Funciones helper locales (solo las que no están en servicios)
 
 async function buildMasivoPreview({ pacienteId, especialidadId, profesionalId, desde, hasta, horaDesde, horaHasta, diasSemana, estado, notas, numeroOrden, cantidadSesiones }) {
   const paciente = await prisma.paciente.findUnique({ where: { id: pacienteId } });
@@ -257,7 +117,7 @@ async function buildMasivoPreview({ pacienteId, especialidadId, profesionalId, d
         const endAt = new Date(startAt);
         endAt.setUTCMinutes(endAt.getUTCMinutes() + durMin);
 
-        const conflict = existing.some((e) => e.startAt < endAt && e.endAt > startAt);
+        const conflict = !isKinesiologia && existing.some((e) => e.startAt < endAt && e.endAt > startAt);
 
         items.push({
           pacienteId,
@@ -569,18 +429,20 @@ turnosRouter.post('/', validateBody(turnoCreateSchema), async (req, res, next) =
     const endAt = new Date(startAt);
     endAt.setMinutes(endAt.getMinutes() + especialidad.duracionTurnoMin);
 
-    const overlapping = await prisma.turno.findFirst({
-      where: {
-        especialidadId,
-        profesionalId: profesionalId || null,
-        estado: { not: 'CANCELADO' },
-        startAt: { lt: endAt },
-        endAt: { gt: startAt }
-      }
-    });
+    if (!isKinesiologiaEspecialidad(especialidad)) {
+      const overlapping = await prisma.turno.findFirst({
+        where: {
+          especialidadId,
+          profesionalId: profesionalId || null,
+          estado: { not: 'CANCELADO' },
+          startAt: { lt: endAt },
+          endAt: { gt: startAt }
+        }
+      });
 
-    if (overlapping) {
-      return next(badRequest('Ya existe un turno en ese horario para esta especialidad/profesional', 'OVERLAP'));
+      if (overlapping) {
+        return next(badRequest('Ya existe un turno en ese horario para esta especialidad/profesional', 'OVERLAP'));
+      }
     }
 
     const importeCoseguro = await resolveImporteCoseguroForTurno({ pacienteId, especialidadId });
@@ -621,12 +483,16 @@ turnosRouter.put('/:id', validateBody(turnoUpdateSchema), async (req, res, next)
 
     const exists = await prisma.turno.findUnique({ where: { id } });
     if (!exists) return next(new HttpError(404, 'NOT_FOUND', 'Turno no encontrado'));
+    const prevEstadoDb = exists.estado;
     const prevEstado = estadoFromDb(exists.estado);
+
+    const nuevoEstadoDb = data.estado !== undefined ? estadoToDb(data.estado) : undefined;
+    const cambioEstado = nuevoEstadoDb && nuevoEstadoDb !== prevEstadoDb;
 
     const turno = await prisma.turno.update({
       where: { id },
       data: {
-        ...(data.estado !== undefined ? { estado: estadoToDb(data.estado) } : {}),
+        ...(nuevoEstadoDb ? { estado: nuevoEstadoDb } : {}),
         ...(data.notas !== undefined ? { notas: data.notas } : {})
       },
       include: {
@@ -635,6 +501,17 @@ turnosRouter.put('/:id', validateBody(turnoUpdateSchema), async (req, res, next)
         profesional: { select: { id: true, nombre: true, email: true } }
       }
     });
+
+    if (cambioEstado && req.user?.id) {
+      await prisma.turnoHistorial.create({
+        data: {
+          turnoId: id,
+          estadoAnterior: prevEstadoDb,
+          estadoNuevo: nuevoEstadoDb,
+          usuarioId: req.user.id
+        }
+      });
+    }
 
     const dto = serializeTurno(turno);
     notifyTurnoUpdated(dto, prevEstado).catch((err) => {
@@ -668,6 +545,15 @@ turnosRouter.post('/:id/cobrar', requireRole(['admin', 'recepcion']), async (req
       }
     });
 
+    registrarAuditoria({
+      accion: 'COBRAR',
+      entidad: 'Turno',
+      entidadId: id,
+      usuarioId: req.user?.id,
+      datos: { importe: updated.importeCoseguro },
+      ip: getClientIp(req)
+    });
+
     res.json({ turno: serializeTurno(updated) });
   } catch (e) {
     next(e);
@@ -681,6 +567,8 @@ turnosRouter.delete('/:id', async (req, res, next) => {
     const turno = await prisma.turno.findUnique({ where: { id } });
     if (!turno) return next(new HttpError(404, 'NOT_FOUND', 'Turno no encontrado'));
 
+    const prevEstadoDb = turno.estado;
+
     const updated = await prisma.turno.update({
       where: { id },
       data: { estado: 'CANCELADO' },
@@ -689,6 +577,26 @@ turnosRouter.delete('/:id', async (req, res, next) => {
         especialidad: true,
         profesional: { select: { id: true, nombre: true, email: true } }
       }
+    });
+
+    if (prevEstadoDb !== 'CANCELADO' && req.user?.id) {
+      await prisma.turnoHistorial.create({
+        data: {
+          turnoId: id,
+          estadoAnterior: prevEstadoDb,
+          estadoNuevo: 'CANCELADO',
+          usuarioId: req.user.id
+        }
+      });
+    }
+
+    registrarAuditoria({
+      accion: 'CANCELAR',
+      entidad: 'Turno',
+      entidadId: id,
+      usuarioId: req.user?.id,
+      datos: { pacienteId: turno.pacienteId },
+      ip: getClientIp(req)
     });
 
     const dto = serializeTurno(updated);

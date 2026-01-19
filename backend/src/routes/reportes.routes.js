@@ -4,27 +4,17 @@ import { z } from 'zod';
 import { prisma } from '../prisma.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { badRequest } from '../utils/httpError.js';
+import { parseUtcDateOnly, toDateOnlyStr, buildDateRangeFilter } from '../utils/date.js';
 
 export const reportesRouter = Router();
 
 reportesRouter.use(requireAuth);
-reportesRouter.use(requireRole(['admin', 'recepcion']));
+reportesRouter.use(requireRole(['admin']));
 
 const resumenQuerySchema = z.object({
   desde: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   hasta: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()
 });
-
-function parseDateOnly(value) {
-  if (!value) return null;
-  const d = new Date(`${value}T00:00:00.000Z`);
-  if (Number.isNaN(d.getTime())) return null;
-  return d;
-}
-
-function toDateOnlyStr(d) {
-  return d.toISOString().slice(0, 10);
-}
 
 reportesRouter.get('/resumen', async (req, res, next) => {
   try {
@@ -33,19 +23,7 @@ reportesRouter.get('/resumen', async (req, res, next) => {
 
     const { desde, hasta } = parsed.data;
 
-    const desdeDate = parseDateOnly(desde);
-    const hastaDate = parseDateOnly(hasta);
-
-    const where = {};
-    if (desdeDate || hastaDate) {
-      where.startAt = {};
-      if (desdeDate) where.startAt.gte = desdeDate;
-      if (hastaDate) {
-        const end = new Date(hastaDate);
-        end.setUTCDate(end.getUTCDate() + 1);
-        where.startAt.lt = end;
-      }
-    }
+    const where = buildDateRangeFilter(desde, hasta, 'startAt');
 
     const turnos = await prisma.turno.findMany({
       where,

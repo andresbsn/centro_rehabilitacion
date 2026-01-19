@@ -5,6 +5,7 @@ import { prisma } from '../prisma.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { validateBody } from '../middleware/validate.js';
 import { HttpError, badRequest } from '../utils/httpError.js';
+import { registrarAuditoria, getClientIp } from '../services/auditoria.js';
 
 export const pagosGimnasioRouter = Router();
 
@@ -105,6 +106,15 @@ pagosGimnasioRouter.post(
       }
 
       return { pago: updatedPago, updatedTurnosCount };
+    });
+
+    registrarAuditoria({
+      accion: 'COBRAR_GIMNASIO',
+      entidad: 'PagoMensualGimnasio',
+      entidadId: id,
+      usuarioId: req.user?.id,
+      datos: { yearMonth: existing.yearMonth, pacienteId: existing.pacienteId, formaPago: data.formaPago },
+      ip: getClientIp(req)
     });
 
     res.json(result);

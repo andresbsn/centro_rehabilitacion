@@ -27,6 +27,14 @@ enum CoseguroTipo {
   COSEGURO2
 }
 
+enum FormaPago {
+  EFECTIVO
+  TRANSFERENCIA
+  DEBITO
+  CREDITO
+  OTRO
+}
+
 model Role {
   id    String @id @default(cuid())
   name  String @unique
@@ -49,6 +57,8 @@ model User {
   turnos                Turno[]               @relation("TurnoProfesional")
   turnosCobrados        Turno[]               @relation("TurnoCobradoPor")
   pagosGimnasioCobrados PagoMensualGimnasio[] @relation("PagoGimnasioCobradoPor")
+  turnoHistoriales      TurnoHistorial[]      @relation("TurnoHistorialUsuario")
+  auditorias            Auditoria[]           @relation("AuditoriaUsuario")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -89,7 +99,7 @@ model PagoMensualGimnasio {
   yearMonth String
   importe   Int    @default(0)
 
-  formaPago String?
+  formaPago FormaPago?
 
   cobrado      Boolean   @default(false)
   cobradoAt    DateTime?
@@ -119,6 +129,7 @@ model OrdenKinesiologia {
 
   @@unique([pacienteId, numero])
   @@index([pacienteId])
+  @@index([numero])
 }
 
 model Paciente {
@@ -225,7 +236,48 @@ model Turno {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  historial TurnoHistorial[]
+
   @@index([especialidadId, startAt])
   @@index([profesionalId, startAt])
   @@index([pacienteId, startAt])
+}
+
+model TurnoHistorial {
+  id String @id @default(cuid())
+
+  turnoId String
+  turno   Turno  @relation(fields: [turnoId], references: [id], onDelete: Cascade)
+
+  estadoAnterior TurnoEstado?
+  estadoNuevo    TurnoEstado
+
+  usuarioId String
+  usuario   User   @relation("TurnoHistorialUsuario", fields: [usuarioId], references: [id])
+
+  fecha DateTime @default(now())
+
+  @@index([turnoId])
+  @@index([fecha])
+}
+
+model Auditoria {
+  id String @id @default(cuid())
+
+  accion   String
+  entidad  String
+  entidadId String?
+
+  usuarioId String?
+  usuario   User?   @relation("AuditoriaUsuario", fields: [usuarioId], references: [id])
+
+  datos Json?
+
+  ip String?
+
+  createdAt DateTime @default(now())
+
+  @@index([entidad, entidadId])
+  @@index([usuarioId])
+  @@index([createdAt])
 }
