@@ -117,7 +117,8 @@ async function buildMasivoPreview({ pacienteId, especialidadId, profesionalId, d
         const endAt = new Date(startAt);
         endAt.setUTCMinutes(endAt.getUTCMinutes() + durMin);
 
-        const conflict = !isKinesiologia && existing.some((e) => e.startAt < endAt && e.endAt > startAt);
+        // Se permite superposición (siempre false) por requerimiento de múltiples boxes
+        const conflict = false; // !isKinesiologia && existing.some((e) => e.startAt < endAt && e.endAt > startAt);
 
         items.push({
           pacienteId,
@@ -429,21 +430,22 @@ turnosRouter.post('/', validateBody(turnoCreateSchema), async (req, res, next) =
     const endAt = new Date(startAt);
     endAt.setMinutes(endAt.getMinutes() + especialidad.duracionTurnoMin);
 
-    if (!isKinesiologiaEspecialidad(especialidad)) {
-      const overlapping = await prisma.turno.findFirst({
-        where: {
-          especialidadId,
-          profesionalId: profesionalId || null,
-          estado: { not: 'CANCELADO' },
-          startAt: { lt: endAt },
-          endAt: { gt: startAt }
-        }
-      });
-
-      if (overlapping) {
-        return next(badRequest('Ya existe un turno en ese horario para esta especialidad/profesional', 'OVERLAP'));
-      }
-    }
+    // Se permite superposición de turnos para soportar múltiples boxes/atenciones simultáneas
+    // if (!isKinesiologiaEspecialidad(especialidad)) {
+    //   const overlapping = await prisma.turno.findFirst({
+    //     where: {
+    //       especialidadId,
+    //       profesionalId: profesionalId || null,
+    //       estado: { not: 'CANCELADO' },
+    //       startAt: { lt: endAt },
+    //       endAt: { gt: startAt }
+    //     }
+    //   });
+    //
+    //   if (overlapping) {
+    //     return next(badRequest('Ya existe un turno en ese horario para esta especialidad/profesional', 'OVERLAP'));
+    //   }
+    // }
 
     const importeCoseguro = await resolveImporteCoseguroForTurno({ pacienteId, especialidadId });
 

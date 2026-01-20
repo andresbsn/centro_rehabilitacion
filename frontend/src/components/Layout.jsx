@@ -2,10 +2,20 @@ import React, { useMemo, useState } from 'react';
 import { NavLink, useLocation, Outlet } from 'react-router-dom';
 import { useAuth } from '../state/AuthProvider';
 
+const menu = [
+  { label: 'Dashboard', to: '/dashboard', roles: ['admin', 'recepcionista', 'profesional'] },
+  { label: 'Pacientes', to: '/pacientes', roles: ['admin', 'recepcionista', 'profesional'] },
+  { label: 'Agenda', to: '/agenda', roles: ['admin', 'recepcionista', 'profesional'] },
+  { label: 'Reportes', to: '/reportes', roles: ['admin'] },
+  { label: 'Configuración', to: '/configuracion', roles: ['admin'] },
+  { label: 'Auditoría', to: '/auditoria', roles: ['admin'] },
+];
+
 export default function Layout() {
   const { user, logout } = useAuth();
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
 
   // Close mobile menu on route change
   React.useEffect(() => {
